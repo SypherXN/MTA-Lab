@@ -1,38 +1,31 @@
 from datetime import datetime, timezone
 import csv
 import io
+import json
 
 import sqlite3
 
 from app.decision_utils import DECISION_SELECT_COLUMNS, decision_summary_from_row
+from app.run_utils import RUN_SUMMARY_SELECT, run_summary_from_row
 from app.schemas import (
     CursorUsageImportRequest,
     CursorUsageOut,
     DashboardStatsOut,
     DecisionSummaryOut,
+    MobileStatusOut,
+    PortfolioSnapshotOut,
+    PortfolioSnapshotSummaryOut,
     QuoteOut,
     RunSummaryOut,
 )
+from app.snapshot_service import get_portfolio_snapshot_summary, get_portfolio_snapshots
 
 def get_dashboard_runs(conn: sqlite3.Connection, limit: int = 50) -> list[RunSummaryOut]:
     return [
-        RunSummaryOut(
-            id=row["id"],
-            run_at=row["run_at"],
-            automation_name=row["automation_name"],
-            market_summary=row["market_summary"],
-            status=row["status"],
-            strategy_version=row["strategy_version"],
-            plan_version=row["plan_version"],
-            mode=row["mode"],
-            buying_power=row["buying_power"],
-            cursor_run_id=row["cursor_run_id"],
-            created_at=row["created_at"],
-        )
+        run_summary_from_row(row)
         for row in conn.execute(
-            """
-            SELECT id, run_at, automation_name, market_summary, status,
-                   strategy_version, plan_version, mode, buying_power, cursor_run_id, created_at
+            f"""
+            SELECT {RUN_SUMMARY_SELECT}
             FROM automation_runs
             ORDER BY id DESC
             LIMIT ?
@@ -173,6 +166,10 @@ def import_cursor_usage(conn: sqlite3.Connection, payload: CursorUsageImportRequ
         """
     )
     linked += relink.rowcount
+    if inserted:
+        from app.freshness_service import touch_data_source
+
+        touch_data_source(conn, "cursor_usage", detail=f"{inserted} rows")
     return inserted, linked
 
 def get_dashboard_usage(conn: sqlite3.Connection, limit: int = 50) -> list[CursorUsageOut]:
@@ -202,6 +199,41 @@ def get_dashboard_usage(conn: sqlite3.Connection, limit: int = 50) -> list[Curso
     ]
 
 
+def get_dashboard_portfolio_snapshots(
+    conn: sqlite3.Connection,
+    limit: int = 100,
+    since: str | None = None,
+    until: str | None = None,
+    run_id: int | None = None,
+) -> list[PortfolioSnapshotOut]:
+    rows = get_portfolio_snapshots(
+        conn, limit=limit, since=since, until=until, run_id=run_id
+    )
+    return [
+        PortfolioSnapshotOut(
+            id=row["id"],
+            snapshot_at=row["snapshot_at"],
+            run_id=row["run_id"],
+            cash_usd=float(row["cash_usd"]),
+            positions_value_usd=float(row["positions_value_usd"]),
+            total_equity_usd=float(row["total_equity_usd"]),
+            unrealized_pnl_usd=row["unrealized_pnl_usd"],
+            source=row["source"],
+            created_at=row["created_at"],
+        )
+        for row in rows
+    ]
+
+
+def get_dashboard_portfolio_snapshot_summary(
+    conn: sqlite3.Connection,
+) -> PortfolioSnapshotSummaryOut | None:
+    summary = get_portfolio_snapshot_summary(conn)
+    if summary is None:
+        return None
+    return PortfolioSnapshotSummaryOut.model_validate(summary)
+
+
 def get_quote_cache(conn: sqlite3.Connection) -> list[QuoteOut]:
     return [
         QuoteOut(
@@ -226,6 +258,7 @@ def export_csv(conn: sqlite3.Connection, export_type: str = "all") -> str:
                 "run_id",
                 "run_at",
                 "automation_name",
+                "run_type",
                 "status",
                 "mode",
                 "strategy_version",
@@ -238,7 +271,7 @@ def export_csv(conn: sqlite3.Connection, export_type: str = "all") -> str:
         )
         for row in conn.execute(
             """
-            SELECT id, run_at, automation_name, status, mode, strategy_version, plan_version,
+            SELECT id, run_at, automation_name, run_type, status, mode, strategy_version, plan_version,
                    market_summary, cursor_run_id, buying_power, created_at
             FROM automation_runs
             ORDER BY id DESC
@@ -279,3 +312,59 @@ def export_csv(conn: sqlite3.Connection, export_type: str = "all") -> str:
             writer.writerow([row[c] for c in row.keys()])
 
     return buffer.getvalue()
+
+
+def export_json(conn: sqlite3.Connection, export_type: str = "all") -> str:
+    payload: dict = {}
+    if export_type in ("all", "runs"):
+        payload["runs"] = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT id, run_at, automation_name, run_type, status, mode, strategy_version,
+                       plan_version, market_summary, cursor_run_id, buying_power, created_at
+                FROM automation_runs ORDER BY id DESC
+                """
+            )
+        ]
+    if export_type in ("all", "decisions"):
+        payload["decisions"] = [
+            dict(row)
+            for row in conn.execute(
+                """
+                SELECT id, run_id, symbol, action, reason, confidence, technical_score,
+                       news_score, risk_score, action_rationale, amount_usd, order_id, mode, created_at
+                FROM decisions ORDER BY id DESC
+                """
+            )
+        ]
+    if export_type == "all":
+        payload["stats"] = get_dashboard_stats(conn).model_dump()
+    return json.dumps(payload, indent=2)
+
+
+def get_mobile_status(conn: sqlite3.Connection) -> MobileStatusOut:
+    from app.alert_state_service import open_alert_count
+    from app.budget_service import get_usage_budget
+    from app.preflight_service import get_live_preflight
+    from app.services import get_simulated_portfolio
+    from app.safety import get_active_strategy
+
+    strategy = get_active_strategy(conn)
+    portfolio = get_simulated_portfolio(conn)
+    last_run = conn.execute(
+        "SELECT run_at, status FROM automation_runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    preflight = get_live_preflight(conn)
+    budget = get_usage_budget(conn)
+    return MobileStatusOut(
+        strategy_mode=strategy.mode,
+        trading_enabled=strategy.trading_enabled,
+        kill_switch=strategy.kill_switch,
+        total_equity_usd=portfolio.total_equity,
+        open_alerts=open_alert_count(conn),
+        last_run_at=last_run["run_at"] if last_run else None,
+        last_run_status=last_run["status"] if last_run else None,
+        preflight_ready=preflight.ready_for_live,
+        budget_ok=budget.budget_ok,
+    )

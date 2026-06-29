@@ -45,6 +45,10 @@ def upsert_quotes(conn: sqlite3.Connection, quotes: list[QuoteImportRow]) -> int
             (symbol, quote.price_usd, quote.source, now),
         )
         upserted += 1
+    if upserted:
+        from app.freshness_service import touch_data_source
+
+        touch_data_source(conn, "quotes", detail=f"{upserted} symbols")
     return upserted
 
 
@@ -89,6 +93,9 @@ def ingest_price_alert(conn: sqlite3.Connection, payload: PriceAlertWebhook) -> 
             json.dumps(payload.payload) if payload.payload else None,
         ),
     )
+    from app.freshness_service import touch_data_source
+
+    touch_data_source(conn, "market_signals", detail=payload.message[:120])
     return WebhookIngestResponse(
         signal_id=cursor.lastrowid,
         check_needed=True,
@@ -184,6 +191,11 @@ def import_robinhood_orders(conn: sqlite3.Connection, payload: RobinhoodOrderImp
         """
     )
     linked += relink.rowcount
+
+    if upserted:
+        from app.freshness_service import touch_data_source
+
+        touch_data_source(conn, "robinhood_orders", detail=f"{upserted} orders")
 
     return upserted, linked
 

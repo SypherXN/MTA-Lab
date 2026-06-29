@@ -11,7 +11,16 @@ from app.integration_service import (
     upsert_quotes,
     _get_quote_map,
 )
+from app.intervention_service import evaluate_intervention
+from app.budget_service import evaluate_run_budget, get_usage_budget
+from app.freshness_service import evaluate_freshness, touch_data_source
+from app.market_input_service import get_market_input_bundle
+from app.memory_service import update_symbol_memory_for_decision
+from app.news_service import get_recent_news_for_watchlist
 from app.plan_service import get_active_plan_version
+from app.run_constants import DEFAULT_RUN_TYPE, VALID_RUN_TYPES
+from app.run_utils import RUN_SUMMARY_SELECT, run_summary_from_row
+from app.snapshot_service import record_portfolio_snapshot
 from app.config import settings
 from app.schemas import (
     AutomationContextOut,
@@ -108,23 +117,10 @@ def get_automation_context(conn: sqlite3.Connection) -> AutomationContextOut:
     ]
 
     recent_runs = [
-        RunSummaryOut(
-            id=row["id"],
-            run_at=row["run_at"],
-            automation_name=row["automation_name"],
-            market_summary=row["market_summary"],
-            status=row["status"],
-            strategy_version=row["strategy_version"],
-            plan_version=row["plan_version"] if "plan_version" in row.keys() else None,
-            mode=row["mode"],
-            buying_power=row["buying_power"],
-            cursor_run_id=row["cursor_run_id"],
-            created_at=row["created_at"],
-        )
+        run_summary_from_row(row)
         for row in conn.execute(
-            """
-            SELECT id, run_at, automation_name, market_summary, status,
-                   strategy_version, plan_version, mode, buying_power, cursor_run_id, created_at
+            f"""
+            SELECT {RUN_SUMMARY_SELECT}
             FROM automation_runs
             ORDER BY id DESC
             LIMIT 10
@@ -145,6 +141,11 @@ def get_automation_context(conn: sqlite3.Connection) -> AutomationContextOut:
     ]
 
     market_signals = get_pending_market_signals(conn)
+    freshness = evaluate_freshness(conn)
+    watchlist = strategy.rules.watchlist or strategy.rules.allowed_symbols
+    recent_news = get_recent_news_for_watchlist(conn, watchlist, limit=15)
+    market_inputs = get_market_input_bundle(conn)
+    intervention = evaluate_intervention(conn)
 
     return AutomationContextOut(
         strategy=strategy,
@@ -156,6 +157,13 @@ def get_automation_context(conn: sqlite3.Connection) -> AutomationContextOut:
         cooldowns=get_active_symbol_cooldowns(conn, strategy.rules.symbol_cooldown_hours),
         check_needed=len(market_signals) > 0,
         market_signals=market_signals,
+        valid_run_types=sorted(VALID_RUN_TYPES),
+        data_freshness=freshness.sources,
+        freshness_checks=freshness,
+        recent_news=recent_news,
+        market_input_bundle=market_inputs,
+        intervention_status=intervention,
+        usage_budget=get_usage_budget(conn),
     )
 
 
@@ -253,9 +261,8 @@ def _apply_simulated_trade(
 
 def get_run_by_id(conn: sqlite3.Connection, run_id: int) -> RunDetailOut:
     row = conn.execute(
-        """
-        SELECT id, run_at, automation_name, market_summary, status, strategy_version,
-               plan_version, mode, buying_power, errors_json, cursor_run_id, usage_json, created_at
+        f"""
+        SELECT {RUN_SUMMARY_SELECT}, errors_json, usage_json, self_critique
         FROM automation_runs
         WHERE id = ?
         """,
@@ -282,21 +289,22 @@ def get_run_by_id(conn: sqlite3.Connection, run_id: int) -> RunDetailOut:
     ]
 
     return RunDetailOut(
-        id=row["id"],
-        run_at=row["run_at"],
-        automation_name=row["automation_name"],
-        market_summary=row["market_summary"],
-        status=row["status"],
-        strategy_version=row["strategy_version"],
-        plan_version=row["plan_version"],
-        mode=row["mode"],
-        buying_power=row["buying_power"],
-        cursor_run_id=row["cursor_run_id"],
-        created_at=row["created_at"],
+        **run_summary_from_row(row).model_dump(),
         errors=errors,
         usage=usage,
+        self_critique=row["self_critique"] if "self_critique" in row.keys() else None,
         decisions=decisions,
+        audit=_get_run_audit_safe(conn, run_id),
     )
+
+
+def _get_run_audit_safe(conn: sqlite3.Connection, run_id: int):
+    from app.run_audit_service import get_run_audit
+
+    try:
+        return get_run_audit(conn, run_id)
+    except ValueError:
+        return None
 
 
 def get_run_by_cursor_run_id(conn: sqlite3.Connection, cursor_run_id: str) -> RunDetailOut | None:
@@ -315,6 +323,7 @@ def build_run_create_response(
     *,
     duplicate: bool = False,
     safety_violations: list[str] | None = None,
+    budget_check=None,
 ) -> RunCreateResponse:
     strategy = get_active_strategy(conn)
     return RunCreateResponse(
@@ -324,6 +333,7 @@ def build_run_create_response(
         safety_violations=safety_violations or [],
         simulated_portfolio=get_simulated_portfolio(conn),
         duplicate=duplicate,
+        budget_check=budget_check,
     )
 
 
@@ -348,6 +358,14 @@ def _strategy_materially_changed(
     )
 
 
+def _normalize_run_type(run_type: str | None) -> str:
+    normalized = (run_type or DEFAULT_RUN_TYPE).lower().strip()
+    if normalized not in VALID_RUN_TYPES:
+        allowed = ", ".join(sorted(VALID_RUN_TYPES))
+        raise ValueError(f"run_type must be one of: {allowed}")
+    return normalized
+
+
 def _validate_run_payload(payload: RunCreate) -> str:
     status = payload.normalized_status()
     if status not in VALID_RUN_STATUSES:
@@ -358,6 +376,9 @@ def _validate_run_payload(payload: RunCreate) -> str:
             raise ValueError("Failed runs must include at least one entry in errors[]")
         if any(d.action.lower() in TRADE_ACTIONS for d in payload.decisions):
             raise ValueError("Failed runs cannot include trade decisions")
+
+    if status == RUN_STATUS_COMPLETED and payload.decisions and not (payload.self_critique or "").strip():
+        raise ValueError("Completed runs with decisions must include self_critique")
 
     return status
 
@@ -379,6 +400,7 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
             return build_run_create_response(conn, existing.id, duplicate=True)
 
     status = _validate_run_payload(payload)
+    run_type = _normalize_run_type(payload.run_type)
     strategy = get_active_strategy(conn)
     plan_version = get_active_plan_version(conn)
     violations = validate_run_decisions(conn, strategy, payload)
@@ -389,6 +411,12 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
 
     run_at = (payload.run_at or datetime.now(timezone.utc)).isoformat()
     usage_json = payload.usage.model_dump() if payload.usage else None
+    budget_check = evaluate_run_budget(
+        run_type=run_type,
+        cost_usd=payload.usage.cost_usd if payload.usage else None,
+        input_tokens=payload.usage.input_tokens if payload.usage else None,
+        output_tokens=payload.usage.output_tokens if payload.usage else None,
+    )
 
     try:
         if payload.quotes:
@@ -397,14 +425,17 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
         cursor = conn.execute(
             """
             INSERT INTO automation_runs (
-                run_at, automation_name, market_summary, status, strategy_version,
-                plan_version, mode, buying_power, errors_json, cursor_run_id, usage_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                run_at, automation_name, run_type, market_summary, self_critique, status, strategy_version,
+                plan_version, mode, buying_power, errors_json, cursor_run_id, usage_json,
+                budget_exceeded, expected_budget_usd, actual_cost_usd
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_at,
                 payload.automation_name,
+                run_type,
                 payload.market_summary,
+                payload.self_critique,
                 status,
                 strategy.version,
                 plan_version,
@@ -413,6 +444,9 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
                 json.dumps(payload.errors),
                 payload.cursor_run_id,
                 json.dumps(usage_json) if usage_json else None,
+                1 if budget_check.budget_exceeded else 0,
+                budget_check.expected_budget_usd,
+                budget_check.actual_cost_usd,
             ),
         )
         run_id = cursor.lastrowid
@@ -456,6 +490,13 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
                     decision.fill_price,
                 )
 
+            update_symbol_memory_for_decision(
+                conn,
+                run_id=run_id,
+                symbol=decision.symbol,
+                action=action,
+            )
+
         if payload.usage and payload.usage.cost_usd is not None:
             conn.execute(
                 """
@@ -475,6 +516,55 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
 
         if status == RUN_STATUS_COMPLETED:
             consume_pending_market_signals(conn)
+            portfolio = get_simulated_portfolio(conn)
+            record_portfolio_snapshot(
+                conn,
+                run_id=run_id,
+                source="run",
+                snapshot_at=run_at,
+                cash_usd=portfolio.cash_usd,
+                total_equity=portfolio.total_equity,
+                unrealized_pnl=portfolio.total_unrealized_pnl,
+            )
+            touch_data_source(conn, "automation_runs", updated_at=run_at)
+            touch_data_source(conn, "portfolio", updated_at=run_at)
+            touch_data_source(conn, "symbol_memory", updated_at=_iso_now())
+        elif status == RUN_STATUS_FAILED:
+            from app.alert_service import dispatch_failed_run_alert
+
+            dispatch_failed_run_alert(conn, run_id=run_id, errors=payload.errors or [])
+
+        if payload.usage and payload.usage.cost_usd:
+            budget = get_usage_budget(conn)
+            if budget.daily_exceeded or budget.monthly_exceeded:
+                from app.alert_service import dispatch_typed_alert
+
+                dispatch_typed_alert(
+                    conn,
+                    alert_type="budget_exceeded",
+                    title="Cursor budget exceeded",
+                    message=(
+                        f"Daily ${budget.daily_spent_usd:.2f}/{budget.daily_budget_usd:.2f}; "
+                        f"Monthly ${budget.monthly_spent_usd:.2f}/{budget.monthly_budget_usd:.2f}"
+                    ),
+                    run_id=run_id,
+                    alert_key=f"budget:{budget.daily_spent_usd}:{budget.monthly_spent_usd}",
+                )
+
+        if budget_check.budget_exceeded:
+            from app.alert_service import dispatch_typed_alert
+
+            dispatch_typed_alert(
+                conn,
+                alert_type="budget_exceeded",
+                title=f"Run budget exceeded ({run_type})",
+                message=budget_check.message,
+                run_id=run_id,
+                entity_type="run",
+                entity_id=str(run_id),
+                alert_key=f"run_budget:{run_id}",
+                force=True,
+            )
     except sqlite3.IntegrityError as exc:
         if payload.cursor_run_id and "cursor_run_id" in str(exc).lower():
             existing = get_run_by_cursor_run_id(conn, payload.cursor_run_id)
@@ -484,7 +574,9 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
     except Exception:
         raise
 
-    return build_run_create_response(conn, run_id, safety_violations=violations)
+    return build_run_create_response(
+        conn, run_id, safety_violations=violations, budget_check=budget_check
+    )
 
 
 def update_active_strategy(conn: sqlite3.Connection, payload: StrategyUpdate) -> StrategyOut:

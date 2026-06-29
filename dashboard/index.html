@@ -7,66 +7,137 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header>
-      <div>
+    <div id="login-screen" class="login-screen" hidden>
+      <article class="card login-card">
         <h1>MTA-Lab Dashboard</h1>
-        <p class="subtitle">Market Test Agent run history, decisions, and simulated portfolio</p>
-      </div>
-      <div class="header-actions">
-        <button id="export-btn" type="button" class="secondary">Export CSV</button>
-        <button id="refresh-btn" type="button">Refresh</button>
-      </div>
-    </header>
+        <p class="subtitle">Sign in to view strategy, runs, and portfolio data.</p>
+        <form id="login-form">
+          <label for="login-password">Password</label>
+          <input id="login-password" type="password" autocomplete="current-password" required />
+          <button type="submit">Sign in</button>
+        </form>
+        <p id="login-error" class="error" hidden></p>
+        <p class="login-hint">Uses <code>POST /api/auth/login</code> when dashboard password is configured on the API.</p>
+      </article>
+    </div>
 
-    <main>
-      <section class="grid" id="stats-grid"></section>
+    <div id="app-shell" hidden>
+      <header>
+        <div>
+          <h1>MTA-Lab Dashboard</h1>
+          <p class="subtitle">Market Test Agent run history, decisions, and simulated portfolio</p>
+        </div>
+        <div class="header-actions">
+          <button id="export-json-btn" type="button" class="secondary">Export JSON</button>
+          <button id="logout-btn" type="button" class="secondary">Log out</button>
+          <button id="export-btn" type="button" class="secondary">Export CSV</button>
+          <button id="refresh-btn" type="button">Refresh</button>
+        </div>
+      </header>
 
-      <section class="grid">
-        <article class="card">
-          <h2>Strategy</h2>
-          <div id="strategy-panel">Loading...</div>
-        </article>
-        <article class="card">
-          <h2>Simulated Portfolio</h2>
-          <div id="portfolio-panel">Loading...</div>
-        </article>
-        <article class="card">
-          <h2>Reconciliation</h2>
-          <div id="reconciliation-panel">Loading...</div>
-        </article>
-      </section>
+      <div id="mobile-status-bar" class="mobile-status-bar" hidden></div>
 
-      <section class="card" style="margin-bottom: 24px">
-        <h2>Robinhood Orders</h2>
-        <div id="orders-table-wrap">Loading...</div>
-      </section>
+      <main>
+        <section class="grid" id="stats-grid"></section>
 
-      <section class="card" style="margin-bottom: 24px">
-        <h2>Recent Runs</h2>
-        <div id="runs-table-wrap">Loading...</div>
-      </section>
+        <section class="grid">
+          <article class="card">
+            <h2>Strategy</h2>
+            <div id="strategy-panel">Loading...</div>
+          </article>
+          <article class="card">
+            <h2>Safety Controls</h2>
+            <div id="safety-panel">Loading...</div>
+          </article>
+          <article class="card">
+            <h2>Simulated Portfolio</h2>
+            <div id="portfolio-panel">Loading...</div>
+          </article>
+          <article class="card">
+            <h2>Portfolio Snapshots</h2>
+            <div id="snapshot-summary-panel">Loading...</div>
+          </article>
+        </section>
 
-      <section class="card" style="margin-bottom: 24px">
-        <h2>Cursor Usage</h2>
-        <div id="usage-table-wrap">Loading...</div>
-      </section>
+        <section class="grid">
+          <article class="card">
+            <h2>Reconciliation</h2>
+            <div id="reconciliation-panel">Loading...</div>
+          </article>
+          <article class="card">
+            <h2>Data Freshness</h2>
+            <div id="freshness-panel">Loading...</div>
+          </article>
+        </section>
 
-      <section class="card">
-        <h2>Decision Log</h2>
-        <div id="decisions-table-wrap">Loading...</div>
-      </section>
+        <section class="card" style="margin-bottom: 24px">
+          <h2>Alert Inbox</h2>
+          <div id="alerts-panel">Loading...</div>
+        </section>
 
-      <p id="error-banner" class="error" hidden></p>
-    </main>
+        <section class="card" style="margin-bottom: 24px">
+          <h2>Strategy Version Comparison</h2>
+          <div id="strategy-compare-panel">Loading...</div>
+        </section>
+
+        <section class="card" style="margin-bottom: 24px">
+          <h2>Equity Curve</h2>
+          <div id="equity-curve-panel">Loading...</div>
+        </section>
+
+        <section class="card" style="margin-bottom: 24px">
+          <h2>Agent Activity Timeline</h2>
+          <div id="timeline-panel">Loading...</div>
+        </section>
+
+        <section class="card" style="margin-bottom: 24px">
+          <h2>Cost Dashboard</h2>
+          <div id="cost-dashboard-panel">Loading...</div>
+        </section>
+
+        <section class="card" style="margin-bottom: 24px">
+          <h2>Cursor Usage</h2>
+          <div id="usage-table-wrap">Loading...</div>
+        </section>
+
+        <section class="card" style="margin-bottom: 24px">
+          <h2>Robinhood Orders</h2>
+          <div id="orders-table-wrap">Loading...</div>
+        </section>
+
+        <section class="card" style="margin-bottom: 24px">
+          <h2>Recent Runs</h2>
+          <div id="runs-table-wrap">Loading...</div>
+        </section>
+
+        <section class="card">
+          <h2>Decision Log</h2>
+          <div id="decisions-table-wrap">Loading...</div>
+        </section>
+
+        <p id="error-banner" class="error" hidden></p>
+      </main>
+    </div>
 
     <div id="run-modal" class="modal" hidden>
-      <div class="modal-backdrop" data-close-modal></div>
+      <div class="modal-backdrop" data-close-modal="run"></div>
       <div class="modal-panel card" role="dialog" aria-labelledby="run-modal-title">
         <div class="modal-header">
           <h2 id="run-modal-title">Run detail</h2>
-          <button type="button" class="modal-close" data-close-modal>&times;</button>
+          <button type="button" class="modal-close" data-close-modal="run">&times;</button>
         </div>
         <div id="run-modal-body">Loading...</div>
+      </div>
+    </div>
+
+    <div id="symbol-modal" class="modal" hidden>
+      <div class="modal-backdrop" data-close-modal="symbol"></div>
+      <div class="modal-panel card modal-panel-wide" role="dialog" aria-labelledby="symbol-modal-title">
+        <div class="modal-header">
+          <h2 id="symbol-modal-title">Symbol detail</h2>
+          <button type="button" class="modal-close" data-close-modal="symbol">&times;</button>
+        </div>
+        <div id="symbol-modal-body">Loading...</div>
       </div>
     </div>
 

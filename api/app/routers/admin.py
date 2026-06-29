@@ -5,14 +5,31 @@ from app.auth import WriteKeyDep
 from app.database import get_connection
 from app.dashboard_service import import_cursor_usage
 from app.integration_service import import_quotes, import_robinhood_orders, ingest_price_alert
+from app.live_promotion_service import approve_live_promotion, request_live_promotion
+from app.maintenance_service import run_maintenance
+from app.news_service import ingest_news_events
+from app.payload_service import store_compact_payload
+from app.retention_service import run_retention
+from app.rollup_service import run_rollup_job
 from app.schemas import (
     AlertDispatchResponse,
+    CompactPayloadOut,
+    CompactPayloadStoreRequest,
     CursorUsageImportRequest,
     CursorUsageImportResponse,
+    LivePromotionApproveRequest,
+    LivePromotionRequestResponse,
+    LivePromotionStatusOut,
+    MaintenanceRunOut,
+    NewsEventImportRequest,
+    NewsEventImportResponse,
     PortfolioResetResponse,
     PriceAlertWebhook,
     QuoteImportRequest,
     QuoteImportResponse,
+    RetentionRunOut,
+    RetentionRunRequest,
+    RollupRunOut,
     RobinhoodOrderImportRequest,
     RobinhoodOrderImportResponse,
     WebhookIngestResponse,
@@ -90,6 +107,22 @@ def robinhood_orders_import(payload: RobinhoodOrderImportRequest) -> RobinhoodOr
         conn.close()
 
 
+@router.post("/news/import", response_model=NewsEventImportResponse, dependencies=[WriteKeyDep])
+def news_import(payload: NewsEventImportRequest) -> NewsEventImportResponse:
+    if not payload.events:
+        raise HTTPException(status_code=400, detail="events must not be empty")
+    conn = get_connection()
+    try:
+        inserted, skipped = ingest_news_events(conn, payload.events)
+        conn.commit()
+        return NewsEventImportResponse(inserted=inserted, skipped=skipped)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 @router.post(
     "/webhooks/price-alert",
     response_model=WebhookIngestResponse,
@@ -124,5 +157,127 @@ def reconciliation_alert_check(force: bool = Query(default=False)) -> AlertDispa
     except Exception:
         conn.rollback()
         raise
+    finally:
+        conn.close()
+
+
+@router.post(
+    "/live-promotion/request",
+    response_model=LivePromotionRequestResponse,
+    dependencies=[WriteKeyDep],
+)
+def live_promotion_request() -> LivePromotionRequestResponse:
+    conn = get_connection()
+    try:
+        result = request_live_promotion(conn)
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post(
+    "/live-promotion/approve",
+    response_model=LivePromotionStatusOut,
+    dependencies=[WriteKeyDep],
+)
+def live_promotion_approve(payload: LivePromotionApproveRequest) -> LivePromotionStatusOut:
+    conn = get_connection()
+    try:
+        result = approve_live_promotion(conn, payload)
+        conn.commit()
+        return result
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post(
+    "/retention/run",
+    response_model=RetentionRunOut,
+    dependencies=[WriteKeyDep],
+)
+def retention_run(payload: RetentionRunRequest | None = None) -> RetentionRunOut:
+    body = payload or RetentionRunRequest()
+    conn = get_connection()
+    try:
+        result = run_retention(
+            conn,
+            keep_runs_days=body.keep_runs_days,
+            keep_snapshots_days=body.keep_snapshots_days,
+            keep_usage_days=body.keep_usage_days,
+        )
+        conn.commit()
+        return result
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post(
+    "/maintenance/run",
+    response_model=MaintenanceRunOut,
+    dependencies=[WriteKeyDep],
+)
+def maintenance_run(
+    vacuum: bool = Query(default=True),
+    analyze: bool = Query(default=True),
+) -> MaintenanceRunOut:
+    conn = get_connection()
+    try:
+        result = run_maintenance(conn, vacuum=vacuum, analyze=analyze)
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post("/rollups/run", response_model=RollupRunOut, dependencies=[WriteKeyDep])
+def rollups_run(days: int = Query(default=30, ge=1, le=365)) -> RollupRunOut:
+    conn = get_connection()
+    try:
+        result = run_rollup_job(conn, days=days)
+        conn.commit()
+        return result
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@router.post(
+    "/payloads/store",
+    response_model=CompactPayloadOut,
+    dependencies=[WriteKeyDep],
+)
+def compact_payload_store(payload: CompactPayloadStoreRequest) -> CompactPayloadOut:
+    conn = get_connection()
+    try:
+        result = store_compact_payload(
+            conn,
+            entity_type=payload.entity_type,
+            entity_id=payload.entity_id,
+            payload=payload.payload,
+            summary=payload.summary,
+        )
+        conn.commit()
+        return result
     finally:
         conn.close()

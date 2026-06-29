@@ -1,0 +1,257 @@
+import json
+from datetime import datetime, timezone
+
+import sqlite3
+
+from app.decision_utils import DECISION_SELECT_COLUMNS, decision_summary_from_row
+from app.news_service import list_news_events
+from app.integration_service import _get_quote_map, mark_position_with_quotes
+from app.safety import BUY_ACTIONS, get_active_symbol_cooldowns, get_active_strategy
+
+SELL_ACTIONS = {"sell", "place_sell", "simulated_sell", "paper_sell"}
+from app.schemas import (
+    ManualNoteOut,
+    MarketSignalOut,
+    SimulatedPositionOut,
+    SymbolMemoryOut,
+    SymbolMemorySummaryOut,
+)
+
+
+def _iso_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _position_for_symbol(
+    conn: sqlite3.Connection,
+    symbol: str,
+) -> SimulatedPositionOut | None:
+    row = conn.execute(
+        "SELECT symbol, quantity, avg_cost FROM simulated_positions WHERE symbol = ?",
+        (symbol.upper(),),
+    ).fetchone()
+    if row is None:
+        return None
+
+    quote_map = _get_quote_map(conn)
+    qty = float(row["quantity"])
+    avg = float(row["avg_cost"])
+    market_value, last_price, cost_basis, unrealized_pnl = mark_position_with_quotes(
+        row["symbol"], qty, avg, quote_map
+    )
+    return SimulatedPositionOut(
+        symbol=row["symbol"],
+        quantity=qty,
+        avg_cost=avg,
+        last_price=last_price,
+        market_value=market_value,
+        cost_basis=cost_basis,
+        unrealized_pnl=unrealized_pnl,
+    )
+
+
+def get_symbol_memory(conn: sqlite3.Connection, symbol: str) -> SymbolMemoryOut:
+    symbol = symbol.upper()
+    strategy = get_active_strategy(conn)
+    cooldowns = get_active_symbol_cooldowns(conn, strategy.rules.symbol_cooldown_hours)
+    cooldown = cooldowns.get(symbol)
+
+    summary_row = conn.execute(
+        """
+        SELECT symbol, last_action, last_buy_at, last_sell_at, last_run_id,
+               trade_count, win_count, loss_count, realized_pnl_usd,
+               unrealized_pnl_usd, risk_notes_json, updated_at
+        FROM symbol_memory_summaries
+        WHERE symbol = ?
+        """,
+        (symbol,),
+    ).fetchone()
+
+    summary = None
+    if summary_row is not None:
+        risk_notes = (
+            json.loads(summary_row["risk_notes_json"])
+            if summary_row["risk_notes_json"]
+            else []
+        )
+        summary = SymbolMemorySummaryOut(
+            symbol=summary_row["symbol"],
+            last_action=summary_row["last_action"],
+            last_buy_at=summary_row["last_buy_at"],
+            last_sell_at=summary_row["last_sell_at"],
+            last_run_id=summary_row["last_run_id"],
+            trade_count=int(summary_row["trade_count"]),
+            win_count=int(summary_row["win_count"]),
+            loss_count=int(summary_row["loss_count"]),
+            realized_pnl_usd=float(summary_row["realized_pnl_usd"]),
+            unrealized_pnl_usd=summary_row["unrealized_pnl_usd"],
+            risk_notes=risk_notes,
+            updated_at=summary_row["updated_at"],
+        )
+
+    decisions = [
+        decision_summary_from_row(row)
+        for row in conn.execute(
+            f"""
+            SELECT {DECISION_SELECT_COLUMNS}
+            FROM decisions
+            WHERE upper(symbol) = ?
+            ORDER BY id DESC
+            LIMIT 20
+            """,
+            (symbol,),
+        )
+    ]
+
+    notes = [
+        ManualNoteOut(id=row["id"], content=row["content"], created_at=row["created_at"])
+        for row in conn.execute(
+            """
+            SELECT id, content, created_at
+            FROM manual_notes
+            WHERE active = 1 AND upper(content) LIKE '%' || upper(?) || '%'
+            ORDER BY id DESC
+            LIMIT 5
+            """,
+            (symbol,),
+        )
+    ]
+
+    signals = [
+        MarketSignalOut(
+            id=row["id"],
+            signal_type=row["signal_type"],
+            symbol=row["symbol"],
+            message=row["message"],
+            source=row["source"],
+            created_at=row["created_at"],
+        )
+        for row in conn.execute(
+            """
+            SELECT id, signal_type, symbol, message, source, created_at
+            FROM market_signals
+            WHERE upper(symbol) = upper(?)
+            ORDER BY id DESC
+            LIMIT 10
+            """,
+            (symbol,),
+        )
+    ]
+
+    position = _position_for_symbol(conn, symbol)
+    cash_row = conn.execute("SELECT cash_usd FROM simulated_cash WHERE id = 1").fetchone()
+    cash = float(cash_row["cash_usd"]) if cash_row else 0.0
+    position_value = 0.0
+    if position:
+        position_value = position.market_value or 0.0
+    portfolio_total_equity = cash + position_value
+    recent_news = list_news_events(conn, symbol=symbol, limit=10)
+
+    return SymbolMemoryOut(
+        symbol=symbol,
+        summary=summary,
+        cooldown=cooldown,
+        position=position,
+        portfolio_total_equity=portfolio_total_equity,
+        recent_decisions=decisions,
+        related_notes=notes,
+        recent_signals=signals,
+        recent_news=recent_news,
+    )
+
+
+def update_symbol_memory_for_decision(
+    conn: sqlite3.Connection,
+    *,
+    run_id: int,
+    symbol: str,
+    action: str,
+    created_at: str | None = None,
+) -> None:
+    symbol = symbol.upper()
+    action = action.lower()
+    now = created_at or _iso_now()
+
+    row = conn.execute(
+        "SELECT symbol FROM symbol_memory_summaries WHERE symbol = ?",
+        (symbol,),
+    ).fetchone()
+
+    if row is None:
+        conn.execute(
+            """
+            INSERT INTO symbol_memory_summaries (
+                symbol, last_action, last_run_id, updated_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (symbol, action, run_id, now),
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE symbol_memory_summaries
+            SET last_action = ?, last_run_id = ?, updated_at = ?
+            WHERE symbol = ?
+            """,
+            (action, run_id, now, symbol),
+        )
+
+    if action in BUY_ACTIONS:
+        conn.execute(
+            """
+            UPDATE symbol_memory_summaries
+            SET last_buy_at = ?, trade_count = trade_count + 1
+            WHERE symbol = ?
+            """,
+            (now, symbol),
+        )
+    elif action in SELL_ACTIONS:
+        conn.execute(
+            """
+            UPDATE symbol_memory_summaries
+            SET last_sell_at = ?, trade_count = trade_count + 1
+            WHERE symbol = ?
+            """,
+            (now, symbol),
+        )
+
+    position = _position_for_symbol(conn, symbol)
+    if position and position.unrealized_pnl is not None:
+        conn.execute(
+            """
+            UPDATE symbol_memory_summaries
+            SET unrealized_pnl_usd = ?
+            WHERE symbol = ?
+            """,
+            (position.unrealized_pnl, symbol),
+        )
+
+
+def backfill_symbol_memory_summaries(conn: sqlite3.Connection) -> int:
+    symbols = conn.execute(
+        "SELECT DISTINCT upper(symbol) AS symbol FROM decisions ORDER BY symbol"
+    ).fetchall()
+    count = 0
+    for row in symbols:
+        symbol = row["symbol"]
+        latest = conn.execute(
+            """
+            SELECT d.run_id, d.action, d.created_at
+            FROM decisions d
+            WHERE upper(d.symbol) = ?
+            ORDER BY d.id DESC
+            LIMIT 1
+            """,
+            (symbol,),
+        ).fetchone()
+        if latest is None:
+            continue
+        update_symbol_memory_for_decision(
+            conn,
+            run_id=latest["run_id"],
+            symbol=symbol,
+            action=latest["action"],
+            created_at=latest["created_at"],
+        )
+        count += 1
+    return count

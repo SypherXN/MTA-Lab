@@ -27,6 +27,8 @@ Default write key (change in `.env`): `dev-key-change-me`
 
 Optional read key (`MTA_READ_API_KEY`): when set, all dashboard GET endpoints and automation read endpoints require `X-API-Key` (read key or write key). `/health` stays public.
 
+Dashboard login (`MTA_DASHBOARD_PASSWORD`): when set, dashboard read endpoints also accept `Authorization: Bearer <token>` from `POST /api/auth/login`. Automation write key remains separate.
+
 ## Backups
 
 ```bash
@@ -67,14 +69,19 @@ python scripts/seed_sample_run.py
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | GET | `/health` | No | Health + SQLite connectivity (`503` if DB down) |
+| GET | `/metrics` | No | Prometheus text metrics (runs, costs, alerts, DB size) |
+| POST | `/api/auth/login` | No | Dashboard login (`MTA_DASHBOARD_PASSWORD` required) |
+| POST | `/api/auth/logout` | Bearer | Revoke dashboard session |
 | GET | `/api/automation/plan` | Read* | Active agent plan (run order, inputs, scoring, stop conditions) |
 | GET | `/api/automation/plans` | Read* | Plan version history (summaries) |
 | GET | `/api/automation/plans/{version}` | Read* | Specific plan version snapshot |
 | PATCH | `/api/automation/plan` | `X-API-Key` | Update plan (dedupes identical content; keeps last 20 versions) |
-| GET | `/api/automation/context` | Read* | Strategy + history + safety + cooldowns + `check_needed` signals |
+| GET | `/api/automation/context` | Read* | Strategy + history + safety + cooldowns + `check_needed` + `valid_run_types` |
+| GET | `/api/automation/symbols/{symbol}/memory` | Read* | Symbol memory (decisions, cooldown, position, notes, signals) |
 | GET | `/api/automation/preflight` | Read* | Live-trading readiness checklist |
+| GET | `/api/automation/live-promotion/status` | Read* | Latest live promotion request + preflight state |
 | GET | `/api/automation/runs/{id}` | Read* | Single run with full decisions |
-| POST | `/api/automation/runs` | `X-API-Key` | Log a run; optional `quotes[]` for mark-to-market |
+| POST | `/api/automation/runs` | `X-API-Key` | Log a run; optional `run_type`, `quotes[]` for mark-to-market |
 | PATCH | `/api/automation/strategy` | `X-API-Key` | Update mode, trading flags, kill switch (bumps version on rule changes) |
 | POST | `/api/automation/notes` | `X-API-Key` | Add manual context note |
 | PATCH | `/api/automation/notes/{id}` | `X-API-Key` | Deactivate a manual note (`active: false`) |
@@ -82,17 +89,48 @@ python scripts/seed_sample_run.py
 | GET | `/api/dashboard/runs` | Read* | Recent runs |
 | GET | `/api/dashboard/decisions` | Read* | Decision log |
 | GET | `/api/dashboard/portfolio` | Read* | Simulated portfolio (mark-to-market when quotes cached) |
+| GET | `/api/dashboard/portfolio/snapshots` | Read* | Portfolio equity snapshots (`since`, `until`, `run_id` filters) |
+| GET | `/api/dashboard/portfolio/snapshots/summary` | Read* | Snapshot aggregate stats (change, min/max) |
+| GET | `/api/dashboard/freshness` | Read* | Last-updated times per data source |
+| GET | `/api/dashboard/freshness/check` | Read* | Staleness evaluation with warnings and `ready_for_analysis` |
+| GET | `/api/dashboard/news` | Read* | Recent news/event summaries (`symbol` filter) |
+| GET | `/api/dashboard/timeline` | Read* | Unified activity timeline (runs, decisions, signals, orders) |
+| GET | `/api/automation/portfolio/snapshots` | Read* | Agent-facing snapshot history |
+| GET | `/api/automation/portfolio/snapshots/summary` | Read* | Agent-facing snapshot summary |
+| GET | `/api/automation/freshness/check` | Read* | Staleness evaluation with warnings and `ready_for_analysis` |
+| GET | `/api/automation/intervention/check` | Read* | Intervention triggers and recommended action |
+| GET | `/api/automation/market-inputs` | Read* | Standardized market input bundle checklist |
+| GET | `/api/automation/news` | Read* | News/event summaries for agent (`symbol`, `since` filters) |
 | GET | `/api/dashboard/usage` | Read* | Cursor usage rows |
+| GET | `/api/dashboard/usage/summary` | Read* | Cost aggregates by day, model, run type |
+| PATCH | `/api/dashboard/strategy` | Session/write* | Update mode, kill switch, trading enabled, caps |
+| GET | `/api/dashboard/preflight` | Read* | Live trading preflight checklist |
 | GET | `/api/dashboard/orders` | Read* | Synced Robinhood orders + link status |
 | GET | `/api/dashboard/reconciliation` | Read* | Order/decision reconciliation summary |
 | GET | `/api/dashboard/quotes` | Read* | Cached quote prices |
-| GET | `/api/dashboard/export` | Read* | CSV export (`type=all|runs|decisions`) |
+| GET | `/api/dashboard/export` | Read* | CSV or JSON export (`format=csv|json`, `type=all|runs|decisions`) |
+| GET | `/api/dashboard/alerts` | Read* | Alert inbox (`status=open|acknowledged|resolved`) |
+| PATCH | `/api/dashboard/alerts/{id}` | Session/write* | Acknowledge or resolve an alert |
+| GET | `/api/dashboard/strategy/performance` | Read* | Performance by strategy version, action, confidence |
+| GET | `/api/dashboard/strategy/compare` | Read* | Compare strategy/plan versions (runs, trades, cost, equity) |
+| GET | `/api/dashboard/rollups` | Read* | Daily rollup history |
+| GET | `/api/dashboard/backtest/replay` | Read* | Replay decisions with alternate rules |
+| GET | `/api/dashboard/usage/budget` | Read* | Daily/monthly Cursor budget status |
+| GET | `/api/dashboard/status/mobile` | Read* | Compact mobile health snapshot |
+| GET | `/api/dashboard/db/snapshots` | Read* | Database size and row-count history |
 | POST | `/api/admin/cursor-usage/import` | `X-API-Key` | Backfill Cursor usage (auto-links `cursor_run_id`) |
 | POST | `/api/admin/portfolio/reset` | `X-API-Key` | Reset simulated cash/positions to defaults |
 | POST | `/api/admin/quotes/import` | `X-API-Key` | Upsert quote cache for portfolio marks |
+| POST | `/api/admin/news/import` | `X-API-Key` | Ingest news/event summaries (dedup by source + external_id) |
 | POST | `/api/admin/robinhood-orders/import` | `X-API-Key` | Sync Robinhood orders; auto-link by `order_id` |
 | POST | `/api/admin/webhooks/price-alert` | `X-API-Key` | Ingest external alert; sets `check_needed` in context |
 | POST | `/api/admin/alerts/reconciliation-check` | `X-API-Key` | Dispatch reconciliation alert webhook if mismatches exist |
+| POST | `/api/admin/live-promotion/request` | `X-API-Key` | Create tokenized live promotion request (requires preflight snapshot) |
+| POST | `/api/admin/live-promotion/approve` | `X-API-Key` | Approve live promotion token → sets mode live + trading enabled |
+| POST | `/api/admin/retention/run` | `X-API-Key` | Prune old runs, snapshots, usage, resolved alerts |
+| POST | `/api/admin/maintenance/run` | `X-API-Key` | `ANALYZE` / `VACUUM` + record DB size snapshot |
+| POST | `/api/admin/rollups/run` | `X-API-Key` | Upsert daily rollups for recent days |
+| POST | `/api/admin/payloads/store` | `X-API-Key` | Store compressed/truncated raw MCP/API payload |
 
 ### Ops scripts
 

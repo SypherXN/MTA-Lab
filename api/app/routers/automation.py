@@ -1,7 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import ReadKeyDep, WriteKeyDep
 from app.database import get_connection
+from app.dashboard_service import (
+    get_dashboard_portfolio_snapshot_summary,
+    get_dashboard_portfolio_snapshots,
+)
+from app.freshness_service import evaluate_freshness, get_data_freshness
+from app.news_service import list_news_events
+from app.news_service import ingest_news_events, list_news_events
 from app.preflight_service import get_live_preflight
 from app.plan_service import (
     get_active_agent_plan,
@@ -9,6 +16,10 @@ from app.plan_service import (
     list_agent_plan_versions,
     update_active_agent_plan,
 )
+from app.intervention_service import evaluate_intervention
+from app.live_promotion_service import get_live_promotion_status
+from app.market_input_service import get_market_input_bundle
+from app.memory_service import get_symbol_memory
 from app.schemas import (
     AgentPlanOut,
     AgentPlanSummaryOut,
@@ -24,6 +35,15 @@ from app.schemas import (
     RunDetailOut,
     StrategyOut,
     StrategyUpdate,
+    SymbolMemoryOut,
+    DataFreshnessChecksOut,
+    DataSourceFreshnessOut,
+    InterventionStatusOut,
+    LivePromotionStatusOut,
+    MarketInputBundleOut,
+    NewsEventOut,
+    PortfolioSnapshotOut,
+    PortfolioSnapshotSummaryOut,
 )
 from app.services import (
     add_manual_note,
@@ -85,6 +105,120 @@ def automation_plan_update(payload: AgentPlanUpdate) -> AgentPlanUpdateResponse:
         conn.close()
 
 
+@router.get("/symbols/{symbol}/memory", response_model=SymbolMemoryOut, dependencies=[ReadKeyDep])
+def automation_symbol_memory(symbol: str) -> SymbolMemoryOut:
+    conn = get_connection()
+    try:
+        return get_symbol_memory(conn, symbol)
+    finally:
+        conn.close()
+
+
+@router.get(
+    "/portfolio/snapshots",
+    response_model=list[PortfolioSnapshotOut],
+    dependencies=[ReadKeyDep],
+)
+def automation_portfolio_snapshots(
+    limit: int = Query(default=100, ge=1, le=500),
+    since: str | None = None,
+    until: str | None = None,
+    run_id: int | None = None,
+) -> list[PortfolioSnapshotOut]:
+    conn = get_connection()
+    try:
+        return get_dashboard_portfolio_snapshots(
+            conn, limit=limit, since=since, until=until, run_id=run_id
+        )
+    finally:
+        conn.close()
+
+
+@router.get(
+    "/portfolio/snapshots/summary",
+    response_model=PortfolioSnapshotSummaryOut,
+    dependencies=[ReadKeyDep],
+)
+def automation_portfolio_snapshot_summary() -> PortfolioSnapshotSummaryOut:
+    conn = get_connection()
+    try:
+        summary = get_dashboard_portfolio_snapshot_summary(conn)
+        if summary is None:
+            raise HTTPException(status_code=404, detail="No portfolio snapshots recorded yet")
+        return summary
+    finally:
+        conn.close()
+
+
+@router.get(
+    "/freshness/check",
+    response_model=DataFreshnessChecksOut,
+    dependencies=[ReadKeyDep],
+)
+def automation_freshness_check() -> DataFreshnessChecksOut:
+    conn = get_connection()
+    try:
+        return evaluate_freshness(conn)
+    finally:
+        conn.close()
+
+
+@router.get(
+    "/freshness",
+    response_model=list[DataSourceFreshnessOut],
+    dependencies=[ReadKeyDep],
+)
+def automation_freshness() -> list[DataSourceFreshnessOut]:
+    conn = get_connection()
+    try:
+        return get_data_freshness(conn)
+    finally:
+        conn.close()
+
+
+@router.get(
+    "/intervention/check",
+    response_model=InterventionStatusOut,
+    dependencies=[ReadKeyDep],
+)
+def automation_intervention_check() -> InterventionStatusOut:
+    conn = get_connection()
+    try:
+        return evaluate_intervention(conn)
+    finally:
+        conn.close()
+
+
+@router.get(
+    "/market-inputs",
+    response_model=MarketInputBundleOut,
+    dependencies=[ReadKeyDep],
+)
+def automation_market_inputs() -> MarketInputBundleOut:
+    conn = get_connection()
+    try:
+        return get_market_input_bundle(conn)
+    finally:
+        conn.close()
+
+
+@router.get(
+    "/news",
+    response_model=list[NewsEventOut],
+    dependencies=[ReadKeyDep],
+)
+def automation_news(
+    symbol: str | None = None,
+    since: str | None = None,
+    limit: int = Query(default=50, ge=1, le=200),
+) -> list[NewsEventOut]:
+    conn = get_connection()
+    try:
+        return list_news_events(conn, symbol=symbol, since=since, limit=limit)
+    finally:
+        conn.close()
+
+
 @router.get("/context", response_model=AutomationContextOut, dependencies=[ReadKeyDep])
 def automation_context() -> AutomationContextOut:
     conn = get_connection()
@@ -110,6 +244,15 @@ def automation_run_detail(run_id: int) -> RunDetailOut:
         return get_run_by_id(conn, run_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@router.get("/live-promotion/status", response_model=LivePromotionStatusOut, dependencies=[ReadKeyDep])
+def automation_live_promotion_status() -> LivePromotionStatusOut:
+    conn = get_connection()
+    try:
+        return get_live_promotion_status(conn)
     finally:
         conn.close()
 

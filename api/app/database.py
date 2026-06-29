@@ -3,6 +3,7 @@ import sqlite3
 from pathlib import Path
 
 from app.config import settings
+from app.migration_service import apply_pending_migrations
 from app.plan_defaults import DEFAULT_AGENT_PLAN
 from app.plan_service import canonical_plan_json, seed_plan_content
 from app.schemas import AgentPlanPayload
@@ -90,6 +91,8 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def _migrate_schema(conn: sqlite3.Connection) -> None:
+    apply_pending_migrations(conn)
+
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS agent_plan_contents (
@@ -112,6 +115,20 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     run_cols = _table_columns(conn, "automation_runs")
     if "plan_version" not in run_cols:
         conn.execute("ALTER TABLE automation_runs ADD COLUMN plan_version TEXT")
+    if "run_type" not in run_cols:
+        conn.execute(
+            "ALTER TABLE automation_runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'daily_research'"
+        )
+    if "self_critique" not in run_cols:
+        conn.execute("ALTER TABLE automation_runs ADD COLUMN self_critique TEXT")
+    if "budget_exceeded" not in run_cols:
+        conn.execute(
+            "ALTER TABLE automation_runs ADD COLUMN budget_exceeded INTEGER NOT NULL DEFAULT 0"
+        )
+    if "expected_budget_usd" not in run_cols:
+        conn.execute("ALTER TABLE automation_runs ADD COLUMN expected_budget_usd REAL")
+    if "actual_cost_usd" not in run_cols:
+        conn.execute("ALTER TABLE automation_runs ADD COLUMN actual_cost_usd REAL")
 
     decision_cols = _table_columns(conn, "decisions")
     for column, ddl in (
@@ -131,6 +148,16 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
             "UPDATE agent_plans SET content_hash = ? WHERE id = ?",
             (content_hash, row["id"]),
         )
+
+    from app.memory_service import backfill_symbol_memory_summaries
+    from app.freshness_service import backfill_freshness_from_existing
+
+    summary_count = conn.execute("SELECT COUNT(*) AS c FROM symbol_memory_summaries").fetchone()["c"]
+    decision_count = conn.execute("SELECT COUNT(*) AS c FROM decisions").fetchone()["c"]
+    if summary_count == 0 and decision_count > 0:
+        backfill_symbol_memory_summaries(conn)
+
+    backfill_freshness_from_existing(conn)
 
 
 def _seed_agent_plan_if_empty(conn: sqlite3.Connection) -> None:

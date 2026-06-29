@@ -17,10 +17,20 @@ class Settings(BaseSettings):
     alert_cooldown_minutes: int = 60
     watcher_pct_threshold: float = 1.5
     plan_history_keep: int = 20
+    dashboard_password: str = ""
+    session_secret: str = "change-me-session-secret"
+    session_ttl_hours: int = 168
+    daily_budget_usd: float = 5.0
+    monthly_budget_usd: float = 50.0
+    compact_payload_max_bytes: int = 4096
 
     @property
     def read_auth_enabled(self) -> bool:
         return bool(self.read_api_key.strip())
+
+    @property
+    def dashboard_auth_enabled(self) -> bool:
+        return bool(self.dashboard_password.strip())
 
     @property
     def alert_enabled(self) -> bool:

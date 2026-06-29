@@ -12,38 +12,78 @@ DEFAULT_AGENT_PLAN = {
         {
             "step": 2,
             "action": "fetch_context",
-            "description": "Load strategy, safety budget, history, notes, and signals.",
+            "description": "Load strategy, safety budget, history, notes, signals, and intervention status.",
             "endpoint": "GET /api/automation/context",
             "required": True,
         },
         {
             "step": 3,
+            "action": "check_budget",
+            "description": "Verify daily/monthly and per-run-type budget before proceeding; trim scope if exceeded.",
+            "required": True,
+        },
+        {
+            "step": 4,
+            "action": "check_intervention",
+            "description": "Verify no critical intervention triggers before proceeding.",
+            "endpoint": "GET /api/automation/intervention/check",
+            "required": True,
+        },
+        {
+            "step": 5,
             "action": "fetch_market_state",
             "description": "Read portfolio, positions, watchlist quotes, and recent orders via Robinhood MCP.",
             "source": "robinhood_mcp",
             "required": True,
         },
         {
-            "step": 4,
+            "step": 6,
             "action": "sync_orders",
             "description": "Import Robinhood orders for reconciliation.",
             "endpoint": "POST /api/admin/robinhood-orders/import",
             "required": True,
         },
         {
-            "step": 5,
-            "action": "analyze",
-            "description": "Analyze each watchlist/allowed symbol using plan inputs, strategy rules, and history.",
+            "step": 7,
+            "action": "fetch_market_inputs",
+            "description": "Load standardized market input bundle checklist (quotes, indices, vol proxy, orders, movers).",
+            "endpoint": "GET /api/automation/market-inputs",
             "required": True,
         },
         {
-            "step": 6,
+            "step": 8,
+            "action": "fetch_news",
+            "description": "Review recent news/events from API; ingest summaries when found externally.",
+            "endpoint": "GET /api/automation/news",
+            "required": True,
+        },
+        {
+            "step": 9,
+            "action": "fetch_symbol_memory",
+            "description": "For each symbol you will analyze, load prior actions, cooldowns, position, notes, and signals.",
+            "endpoint": "GET /api/automation/symbols/{symbol}/memory",
+            "required": True,
+        },
+        {
+            "step": 10,
+            "action": "analyze",
+            "description": "Analyze each watchlist/allowed symbol using market inputs, symbol memory, strategy rules, and history.",
+            "required": True,
+        },
+        {
+            "step": 11,
             "action": "review_trades",
             "description": "Call review_equity_order for any would-be live trade; never place unless safety.trading_allowed.",
             "required": False,
         },
         {
-            "step": 7,
+            "step": 12,
+            "action": "self_critique",
+            "description": "Verify decisions against strategy, safety, cooldowns, freshness, symbol memory, and missing data.",
+            "required": True,
+        },
+        {
+            "step": 13,
             "action": "log_run",
             "description": "POST completed or failed run with decisions, quotes, usage, and errors.",
             "endpoint": "POST /api/automation/runs",
@@ -82,6 +122,42 @@ DEFAULT_AGENT_PLAN = {
             "required": False,
         },
         {
+            "name": "usage_budget",
+            "source": "api_context.usage_budget",
+            "description": "Daily/monthly spend caps, per-run-type budgets, and remaining budget.",
+            "required": True,
+        },
+        {
+            "name": "intervention_status",
+            "source": "api_context.intervention_status",
+            "description": "Triggers requiring operator review or hold-only mode.",
+            "required": True,
+        },
+        {
+            "name": "market_input_bundle",
+            "source": "GET /api/automation/market-inputs",
+            "description": "Checklist of quotes, indices, volatility proxy, orders, movers, and freshness readiness.",
+            "required": True,
+        },
+        {
+            "name": "recent_news",
+            "source": "api_context.recent_news / GET /api/automation/news",
+            "description": "Stored news headlines, earnings, macro events for watchlist symbols.",
+            "required": True,
+        },
+        {
+            "name": "symbol_memory",
+            "source": "GET /api/automation/symbols/{symbol}/memory",
+            "description": "Per-symbol prior decisions, cooldown state, position, P&L, notes, and signals.",
+            "required": True,
+        },
+        {
+            "name": "data_freshness",
+            "source": "api_context.freshness_checks",
+            "description": "Staleness warnings for quotes, portfolio, runs, and other inputs.",
+            "required": True,
+        },
+        {
             "name": "portfolio",
             "source": "robinhood_mcp.get_portfolio",
             "description": "Live account cash and buying power.",
@@ -118,6 +194,31 @@ DEFAULT_AGENT_PLAN = {
             "rule": "In research/paper mode use simulated_buy/simulated_sell; never place_equity_order unless trading_allowed.",
         },
         {
+            "id": "use_market_input_bundle",
+            "priority": "high",
+            "rule": "After MCP sync, fetch market-inputs; do not analyze until required checklist items are present or explicitly noted as missing.",
+        },
+        {
+            "id": "use_news_context",
+            "priority": "high",
+            "rule": "Review recent_news and symbol memory news before scoring news component; cite headlines in action_rationale when material.",
+        },
+        {
+            "id": "self_critique_before_submit",
+            "priority": "high",
+            "rule": "Before POST /runs, run self-critique against strategy, safety, cooldowns, freshness, symbol memory, and score consistency; include summary in self_critique field.",
+        },
+        {
+            "id": "use_symbol_memory",
+            "priority": "high",
+            "rule": "Before analyzing a symbol, fetch symbol memory and reference prior actions and cooldowns in the decision rationale.",
+        },
+        {
+            "id": "respect_data_freshness",
+            "priority": "high",
+            "rule": "If freshness_checks.ready_for_analysis is false, do not open new positions; hold or skip and cite stale sources.",
+        },
+        {
             "id": "symbol_coverage",
             "priority": "high",
             "rule": "Produce a decision row for every symbol analyzed, including hold and skip.",
@@ -142,6 +243,21 @@ DEFAULT_AGENT_PLAN = {
             "priority": "high",
             "rule": "Do not log buy/simulated_buy on symbols listed in api_context.cooldowns.",
         },
+        {
+            "id": "simulation_discipline",
+            "priority": "high",
+            "rule": "In research mode use simulated_buy/simulated_sell with fill_price and amount_usd; never live buy/sell unless safety.trading_allowed.",
+        },
+        {
+            "id": "run_budget_guardrails",
+            "priority": "high",
+            "rule": "Before deep analysis, check usage_budget.budget_ok and run_type_budget_usd for this run_type; hold/skip only if daily/monthly exceeded.",
+        },
+        {
+            "id": "cost_aware_routing",
+            "priority": "medium",
+            "rule": "Use cheaper models for signal_response and reconciliation_only; check usage_budget before deep analysis.",
+        },
     ],
     "data_sources": [
         {
@@ -165,6 +281,11 @@ DEFAULT_AGENT_PLAN = {
     ],
     "stop_conditions": [
         {
+            "condition": "intervention_required",
+            "action": "stop_or_hold_only",
+            "description": "When intervention_status.intervention_required is true, follow severity: critical → failed run; high → hold/skip only.",
+        },
+        {
             "condition": "context_or_plan_unavailable",
             "action": "log_failed_run_and_stop",
             "description": "Do not trade if plan or context cannot be loaded.",
@@ -180,9 +301,34 @@ DEFAULT_AGENT_PLAN = {
             "description": "Stop if portfolio, quotes, or orders cannot be retrieved.",
         },
         {
+            "condition": "market_inputs_not_ready",
+            "action": "hold_only",
+            "description": "When market-inputs.ready is false, hold/skip and explain missing checklist items.",
+        },
+        {
+            "condition": "self_critique_failed",
+            "action": "revise_or_hold",
+            "description": "Downgrade trade intents to hold/skip if self-critique finds safety or data gaps.",
+        },
+        {
+            "condition": "stale_required_inputs",
+            "action": "hold_only",
+            "description": "When freshness_checks.ready_for_analysis is false, only hold/skip and note stale sources.",
+        },
+        {
+            "condition": "symbol_memory_unavailable",
+            "action": "skip_symbol",
+            "description": "Skip symbols whose memory endpoint fails rather than analyzing without history.",
+        },
+        {
             "condition": "safety_violation_detected",
             "action": "do_not_submit_trade_actions",
             "description": "Downgrade to hold/skip rather than violating caps or cooldowns.",
+        },
+        {
+            "condition": "run_budget_exceeded",
+            "action": "hold_only",
+            "description": "When usage_budget daily/monthly exceeded, only hold/skip; note budget in market_summary.",
         },
         {
             "condition": "live_trading_not_allowed",
