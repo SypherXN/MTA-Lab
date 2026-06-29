@@ -1,0 +1,13 @@
+[Unit]
+Description=MTA-Lab API
+After=network.target
+
+[Service]
+User=opc
+WorkingDirectory=/home/opc/MTA-Lab/api
+EnvironmentFile=/home/opc/MTA-Lab/api/.env
+ExecStart=/home/opc/MTA-Lab/api/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

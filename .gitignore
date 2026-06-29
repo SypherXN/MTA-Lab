@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+dist/
+build/
+
+# SQLite
+*.db
+*.sqlite3
+data/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Secrets
+.env.local
+.env.production
+secrets/
+
+# Local-only (not pushed to GitHub)
+.local/
+push-result.txt

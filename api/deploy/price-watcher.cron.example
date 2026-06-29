@@ -1,0 +1,7 @@
+# Intraday price watcher — weekdays during US market hours (example, UTC).
+# Adjust times for your timezone. Requires quotes JSON from an external source.
+#
+# */15 14-20 * * 1-5 cd /home/opc/MTA-Lab/api && .venv/bin/python scripts/price_watcher.py --quotes-file /home/opc/quotes.json >> /home/opc/MTA-Lab/api/data/price-watcher.log 2>&1
+#
+# Or pass quotes inline:
+# MTA_WATCHER_QUOTES_JSON='[{"symbol":"SPY","price_usd":520.5}]' .venv/bin/python scripts/price_watcher.py

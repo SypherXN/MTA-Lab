@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MTA-Lab Dashboard</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>MTA-Lab Dashboard</h1>
+        <p class="subtitle">Market Test Agent run history, decisions, and simulated portfolio</p>
+      </div>
+      <div class="header-actions">
+        <button id="export-btn" type="button" class="secondary">Export CSV</button>
+        <button id="refresh-btn" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="grid" id="stats-grid"></section>
+
+      <section class="grid">
+        <article class="card">
+          <h2>Strategy</h2>
+          <div id="strategy-panel">Loading...</div>
+        </article>
+        <article class="card">
+          <h2>Simulated Portfolio</h2>
+          <div id="portfolio-panel">Loading...</div>
+        </article>
+        <article class="card">
+          <h2>Reconciliation</h2>
+          <div id="reconciliation-panel">Loading...</div>
+        </article>
+      </section>
+
+      <section class="card" style="margin-bottom: 24px">
+        <h2>Robinhood Orders</h2>
+        <div id="orders-table-wrap">Loading...</div>
+      </section>
+
+      <section class="card" style="margin-bottom: 24px">
+        <h2>Recent Runs</h2>
+        <div id="runs-table-wrap">Loading...</div>
+      </section>
+
+      <section class="card" style="margin-bottom: 24px">
+        <h2>Cursor Usage</h2>
+        <div id="usage-table-wrap">Loading...</div>
+      </section>
+
+      <section class="card">
+        <h2>Decision Log</h2>
+        <div id="decisions-table-wrap">Loading...</div>
+      </section>
+
+      <p id="error-banner" class="error" hidden></p>
+    </main>
+
+    <div id="run-modal" class="modal" hidden>
+      <div class="modal-backdrop" data-close-modal></div>
+      <div class="modal-panel card" role="dialog" aria-labelledby="run-modal-title">
+        <div class="modal-header">
+          <h2 id="run-modal-title">Run detail</h2>
+          <button type="button" class="modal-close" data-close-modal>&times;</button>
+        </div>
+        <div id="run-modal-body">Loading...</div>
+      </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
