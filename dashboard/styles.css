@@ -141,6 +141,182 @@ main {
   stroke-linejoin: round;
 }
 
+.lane-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.lane-badge.live {
+  background: #7f1d1d;
+  color: #fecaca;
+}
+
+.lane-badge.shadow {
+  background: #1e3a5f;
+  color: #bfdbfe;
+}
+
+.lane-badge.research {
+  background: #14532d;
+  color: #bbf7d0;
+}
+
+.equity-lane-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.lane-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+.lane-hero-card {
+  border-color: #7f1d1d;
+  background: linear-gradient(180deg, rgba(127, 29, 29, 0.12), transparent 120px);
+}
+
+.lane-intro {
+  max-width: 72ch;
+  margin-bottom: 16px;
+}
+
+.lane-role-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  margin-bottom: 16px;
+  font-size: 0.9rem;
+}
+
+.lane-role-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.card-header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.card-header-row h2 {
+  margin: 0;
+}
+
+.lane-select-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+}
+
+.lane-select-label select {
+  min-width: 160px;
+}
+
+.live-period-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.live-period-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.live-period-row.current {
+  border-color: #7f1d1d;
+}
+
+.live-track-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  margin-bottom: 12px;
+}
+
+.live-track-stats p {
+  margin: 0;
+}
+
+.lane-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.lane-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.lane-card.live {
+  border-color: #7f1d1d;
+}
+
+.lane-card h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.lane-card-meta {
+  font-size: 0.85rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.lane-card-actions {
+  margin-top: 10px;
+}
+
+.lane-card-actions button {
+  font-size: 0.85rem;
+}
+
+.legacy-compare summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.chart-line.live-track {
+  stroke: #f87171;
+  stroke-width: 2.5;
+}
+
+.chart-handoff {
+  stroke: var(--muted);
+  stroke-dasharray: 4 4;
+  stroke-width: 1;
+}
+
 .chart-dot {
   fill: var(--accent);
 }

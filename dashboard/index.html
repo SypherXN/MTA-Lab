@@ -40,6 +40,33 @@
       <main>
         <section class="grid" id="stats-grid"></section>
 
+        <section class="card lane-hero-card" style="margin-bottom: 24px">
+          <h2>Live Money Track</h2>
+          <p class="muted lane-intro">
+            Real Robinhood orders only flow through the <strong>live</strong> lane.
+            When you promote a different lane, the previous live lane becomes <strong>shadow</strong>
+            and keeps its full run and equity history. The chart below stitches together every lane
+            that has been live, in order.
+          </p>
+          <div id="live-money-track">Loading...</div>
+        </section>
+
+        <section class="card" style="margin-bottom: 24px">
+          <h2>Simulation Lanes</h2>
+          <div class="lane-role-legend">
+            <span><span class="lane-badge live">live</span> Real money — only this lane places Robinhood orders</span>
+            <span><span class="lane-badge shadow">shadow</span> Paper challenger — often a former live lane</span>
+            <span><span class="lane-badge research">research</span> Paper-only experiment</span>
+          </div>
+          <div id="lanes-panel">Loading...</div>
+        </section>
+
+        <section class="card" style="margin-bottom: 24px">
+          <h2>Lane Comparison</h2>
+          <p class="muted">Head-to-head paper performance. Equity is per-lane (not global).</p>
+          <div id="lane-compare-panel">Loading...</div>
+        </section>
+
         <section class="grid">
           <article class="card">
             <h2>Strategy</h2>
@@ -50,11 +77,20 @@
             <div id="safety-panel">Loading...</div>
           </article>
           <article class="card">
-            <h2>Simulated Portfolio</h2>
+            <div class="card-header-row">
+              <h2>Simulated Portfolio</h2>
+              <label class="lane-select-label">
+                Lane
+                <select id="portfolio-lane-select"></select>
+              </label>
+            </div>
             <div id="portfolio-panel">Loading...</div>
           </article>
           <article class="card">
-            <h2>Portfolio Snapshots</h2>
+            <div class="card-header-row">
+              <h2>Portfolio Snapshots</h2>
+              <span id="snapshot-lane-label" class="muted"></span>
+            </div>
             <div id="snapshot-summary-panel">Loading...</div>
           </article>
         </section>
@@ -76,14 +112,17 @@
         </section>
 
         <section class="card" style="margin-bottom: 24px">
-          <h2>Strategy Version Comparison</h2>
-          <div id="strategy-compare-panel">Loading...</div>
-        </section>
-
-        <section class="card" style="margin-bottom: 24px">
-          <h2>Equity Curve</h2>
+          <h2>Paper Portfolio Comparison</h2>
+          <p class="muted">Overlay simulated equity curves for any lane. Use this to compare challengers before promoting one to live.</p>
+          <div id="equity-lane-controls" class="equity-lane-controls"></div>
           <div id="equity-curve-panel">Loading...</div>
         </section>
+
+        <details class="card legacy-compare" style="margin-bottom: 24px">
+          <summary>Strategy Version Comparison (legacy — global equity)</summary>
+          <p class="muted">Run counts by strategy version. Equity here mixes all lanes and is misleading once configs change — prefer Lane Comparison above.</p>
+          <div id="strategy-compare-panel">Loading...</div>
+        </details>
 
         <section class="card" style="margin-bottom: 24px">
           <h2>Agent Activity Timeline</h2>

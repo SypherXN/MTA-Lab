@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 import sqlite3
 
-from app.decision_utils import DECISION_SELECT_COLUMNS, decision_detail_from_row, decision_summary_from_row
+from app.decision_utils import DECISION_SELECT_ALIASED, DECISION_SELECT_COLUMNS, decision_detail_from_row, decision_summary_from_row
 from app.integration_service import (
     consume_pending_market_signals,
     get_pending_market_signals,
@@ -17,9 +17,17 @@ from app.freshness_service import evaluate_freshness, touch_data_source
 from app.market_input_service import get_market_input_bundle
 from app.memory_service import update_symbol_memory_for_decision
 from app.news_service import get_recent_news_for_watchlist
-from app.plan_service import get_active_plan_version
+from app.lane_service import (
+    ensure_primary_lane,
+    get_lane,
+    get_primary_lane_id,
+    get_strategy_for_lane,
+    lane_allows_live_trading,
+    resolve_lane_id,
+)
+from app.plan_service import get_active_plan_version, get_agent_plan_by_version
 from app.run_constants import DEFAULT_RUN_TYPE, VALID_RUN_TYPES
-from app.run_utils import RUN_SUMMARY_SELECT, run_summary_from_row
+from app.run_utils import RUN_SUMMARY_FROM, RUN_SUMMARY_SELECT, run_summary_from_row
 from app.snapshot_service import record_portfolio_snapshot
 from app.config import settings
 from app.schemas import (
@@ -57,8 +65,24 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def get_simulated_portfolio(conn: sqlite3.Connection) -> SimulatedPortfolioOut:
-    cash_row = conn.execute("SELECT cash_usd FROM simulated_cash WHERE id = 1").fetchone()
+def get_simulated_portfolio(
+    conn: sqlite3.Connection,
+    lane_id: int | None = None,
+    *,
+    require_active: bool = True,
+) -> SimulatedPortfolioOut:
+    ensure_primary_lane(conn)
+    if lane_id is None:
+        resolved_lane = get_primary_lane_id(conn)
+    elif require_active:
+        resolved_lane = resolve_lane_id(conn, lane_id)
+    else:
+        get_lane(conn, lane_id)
+        resolved_lane = lane_id
+    cash_row = conn.execute(
+        "SELECT cash_usd FROM simulated_cash WHERE lane_id = ?",
+        (resolved_lane,),
+    ).fetchone()
     cash = float(cash_row["cash_usd"]) if cash_row else 0.0
     quote_map = _get_quote_map(conn)
 
@@ -68,7 +92,12 @@ def get_simulated_portfolio(conn: sqlite3.Connection) -> SimulatedPortfolioOut:
     has_marked_prices = False
 
     for row in conn.execute(
-        "SELECT symbol, quantity, avg_cost FROM simulated_positions ORDER BY symbol"
+        """
+        SELECT symbol, quantity, avg_cost FROM simulated_positions
+        WHERE lane_id = ?
+        ORDER BY symbol
+        """,
+        (resolved_lane,),
     ):
         qty = float(row["quantity"])
         avg = float(row["avg_cost"])
@@ -100,8 +129,11 @@ def get_simulated_portfolio(conn: sqlite3.Connection) -> SimulatedPortfolioOut:
     )
 
 
-def get_automation_context(conn: sqlite3.Connection) -> AutomationContextOut:
-    strategy = get_active_strategy(conn)
+def get_automation_context(conn: sqlite3.Connection, lane_id: int | None = None) -> AutomationContextOut:
+    resolved_lane = resolve_lane_id(conn, lane_id)
+    lane = get_lane(conn, resolved_lane)
+    strategy = get_strategy_for_lane(conn, resolved_lane)
+    plan = get_agent_plan_by_version(conn, lane.plan_version)
 
     notes = [
         ManualNoteOut(id=row["id"], content=row["content"], created_at=row["created_at"])
@@ -121,10 +153,12 @@ def get_automation_context(conn: sqlite3.Connection) -> AutomationContextOut:
         for row in conn.execute(
             f"""
             SELECT {RUN_SUMMARY_SELECT}
-            FROM automation_runs
-            ORDER BY id DESC
+            FROM {RUN_SUMMARY_FROM}
+            WHERE r.lane_id = ?
+            ORDER BY r.id DESC
             LIMIT 10
-            """
+            """,
+            (resolved_lane,),
         )
     ]
 
@@ -132,11 +166,14 @@ def get_automation_context(conn: sqlite3.Connection) -> AutomationContextOut:
         decision_summary_from_row(row)
         for row in conn.execute(
             f"""
-            SELECT {DECISION_SELECT_COLUMNS}
-            FROM decisions
-            ORDER BY id DESC
+            SELECT {DECISION_SELECT_ALIASED}
+            FROM decisions d
+            JOIN automation_runs r ON r.id = d.run_id
+            WHERE r.lane_id = ?
+            ORDER BY d.id DESC
             LIMIT 50
-            """
+            """,
+            (resolved_lane,),
         )
     ]
 
@@ -148,13 +185,20 @@ def get_automation_context(conn: sqlite3.Connection) -> AutomationContextOut:
     intervention = evaluate_intervention(conn)
 
     return AutomationContextOut(
+        lane_id=resolved_lane,
+        lane_name=lane.name,
+        lane_role=lane.lane_role,
+        plan_version=lane.plan_version,
+        agent_plan=plan,
         strategy=strategy,
         manual_notes=notes,
         recent_runs=recent_runs,
         recent_decisions=recent_decisions,
-        simulated_portfolio=get_simulated_portfolio(conn),
-        safety=build_safety_snapshot(conn, strategy),
-        cooldowns=get_active_symbol_cooldowns(conn, strategy.rules.symbol_cooldown_hours),
+        simulated_portfolio=get_simulated_portfolio(conn, resolved_lane),
+        safety=build_safety_snapshot(conn, strategy, lane_id=resolved_lane),
+        cooldowns=get_active_symbol_cooldowns(
+            conn, strategy.rules.symbol_cooldown_hours, lane_id=resolved_lane
+        ),
         check_needed=len(market_signals) > 0,
         market_signals=market_signals,
         valid_run_types=sorted(VALID_RUN_TYPES),
@@ -169,6 +213,7 @@ def get_automation_context(conn: sqlite3.Connection) -> AutomationContextOut:
 
 def _apply_simulated_trade(
     conn: sqlite3.Connection,
+    lane_id: int,
     symbol: str,
     action: str,
     amount_usd: float | None,
@@ -197,12 +242,18 @@ def _apply_simulated_trade(
         (symbol, price, _iso_now()),
     )
 
-    cash_row = conn.execute("SELECT cash_usd FROM simulated_cash WHERE id = 1").fetchone()
-    cash = float(cash_row["cash_usd"])
+    cash_row = conn.execute(
+        "SELECT cash_usd FROM simulated_cash WHERE lane_id = ?",
+        (lane_id,),
+    ).fetchone()
+    cash = float(cash_row["cash_usd"]) if cash_row else 0.0
 
     pos = conn.execute(
-        "SELECT id, quantity, avg_cost FROM simulated_positions WHERE symbol = ?",
-        (symbol,),
+        """
+        SELECT id, quantity, avg_cost FROM simulated_positions
+        WHERE lane_id = ? AND symbol = ?
+        """,
+        (lane_id, symbol),
     ).fetchone()
 
     if action in SIMULATED_BUY_ACTIONS:
@@ -212,10 +263,10 @@ def _apply_simulated_trade(
         if pos is None:
             conn.execute(
                 """
-                INSERT INTO simulated_positions (symbol, quantity, avg_cost, updated_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO simulated_positions (lane_id, symbol, quantity, avg_cost, updated_at)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (symbol, quantity, price, _iso_now()),
+                (lane_id, symbol, quantity, price, _iso_now()),
             )
         else:
             old_qty = float(pos["quantity"])
@@ -231,8 +282,14 @@ def _apply_simulated_trade(
                 (new_qty, new_avg, _iso_now(), pos["id"]),
             )
         conn.execute(
-            "UPDATE simulated_cash SET cash_usd = ?, updated_at = ? WHERE id = 1",
-            (new_cash, _iso_now()),
+            """
+            INSERT INTO simulated_cash (lane_id, cash_usd, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(lane_id) DO UPDATE SET
+                cash_usd = excluded.cash_usd,
+                updated_at = excluded.updated_at
+            """,
+            (lane_id, new_cash, _iso_now()),
         )
     elif action in SIMULATED_SELL_ACTIONS:
         if pos is None:
@@ -254,17 +311,23 @@ def _apply_simulated_trade(
                 (new_qty, _iso_now(), pos["id"]),
             )
         conn.execute(
-            "UPDATE simulated_cash SET cash_usd = ?, updated_at = ? WHERE id = 1",
-            (cash + proceeds, _iso_now()),
+            """
+            INSERT INTO simulated_cash (lane_id, cash_usd, updated_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(lane_id) DO UPDATE SET
+                cash_usd = excluded.cash_usd,
+                updated_at = excluded.updated_at
+            """,
+            (lane_id, cash + proceeds, _iso_now()),
         )
 
 
 def get_run_by_id(conn: sqlite3.Connection, run_id: int) -> RunDetailOut:
     row = conn.execute(
         f"""
-        SELECT {RUN_SUMMARY_SELECT}, errors_json, usage_json, self_critique
-        FROM automation_runs
-        WHERE id = ?
+        SELECT {RUN_SUMMARY_SELECT}, r.errors_json, r.usage_json, r.self_critique
+        FROM {RUN_SUMMARY_FROM}
+        WHERE r.id = ?
         """,
         (run_id,),
     ).fetchone()
@@ -321,17 +384,21 @@ def build_run_create_response(
     conn: sqlite3.Connection,
     run_id: int,
     *,
+    lane_id: int,
     duplicate: bool = False,
     safety_violations: list[str] | None = None,
     budget_check=None,
 ) -> RunCreateResponse:
-    strategy = get_active_strategy(conn)
+    strategy = get_strategy_for_lane(conn, lane_id)
+    lane = get_lane(conn, lane_id)
     return RunCreateResponse(
         run_id=run_id,
+        lane_id=lane_id,
+        lane_name=lane.name,
         mode=strategy.mode,
-        trading_allowed=trading_is_allowed(strategy),
+        trading_allowed=lane_allows_live_trading(lane, strategy),
         safety_violations=safety_violations or [],
-        simulated_portfolio=get_simulated_portfolio(conn),
+        simulated_portfolio=get_simulated_portfolio(conn, lane_id),
         duplicate=duplicate,
         budget_check=budget_check,
     )
@@ -383,27 +450,55 @@ def _validate_run_payload(payload: RunCreate) -> str:
     return status
 
 
-def reset_simulated_portfolio(conn: sqlite3.Connection) -> tuple[int, SimulatedPortfolioOut]:
-    positions_cleared = conn.execute("SELECT COUNT(*) AS c FROM simulated_positions").fetchone()["c"]
-    conn.execute("DELETE FROM simulated_positions")
+def reset_simulated_portfolio(
+    conn: sqlite3.Connection,
+    lane_id: int | None = None,
+) -> tuple[int, SimulatedPortfolioOut]:
+    from app.lane_service import reset_lane_portfolio
+
+    resolved_lane = resolve_lane_id(conn, lane_id)
+    positions_cleared, _ = reset_lane_portfolio(conn, resolved_lane)
+    return positions_cleared, get_simulated_portfolio(conn, resolved_lane)
+
+
+def activate_strategy_as_live(conn: sqlite3.Connection, source: StrategyOut) -> StrategyOut:
+    """Activate live trading using rules from a specific strategy version."""
+    conn.execute("UPDATE strategies SET is_active = 0")
+    version = _next_strategy_version(source.version)
     conn.execute(
-        "UPDATE simulated_cash SET cash_usd = ?, updated_at = ? WHERE id = 1",
-        (settings.initial_simulated_cash, _iso_now()),
+        """
+        INSERT INTO strategies (
+            version, name, mode, trading_enabled, kill_switch, rules_json, is_active
+        ) VALUES (?, ?, 'live', 1, 0, ?, 1)
+        """,
+        (version, source.name, source.rules.model_dump_json()),
     )
-    return int(positions_cleared), get_simulated_portfolio(conn)
+    return get_active_strategy(conn)
 
 
 def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateResponse:
     if payload.cursor_run_id:
         existing = get_run_by_cursor_run_id(conn, payload.cursor_run_id)
         if existing is not None:
-            return build_run_create_response(conn, existing.id, duplicate=True)
+            lane_id = existing.lane_id or get_primary_lane_id(conn)
+            return build_run_create_response(
+                conn, existing.id, lane_id=lane_id, duplicate=True
+            )
 
     status = _validate_run_payload(payload)
     run_type = _normalize_run_type(payload.run_type)
-    strategy = get_active_strategy(conn)
-    plan_version = get_active_plan_version(conn)
-    violations = validate_run_decisions(conn, strategy, payload)
+    resolved_lane = resolve_lane_id(conn, payload.lane_id)
+    lane = get_lane(conn, resolved_lane)
+    strategy = get_strategy_for_lane(conn, resolved_lane)
+    plan_version = lane.plan_version
+    allows_live = lane_allows_live_trading(lane, strategy)
+    violations = validate_run_decisions(
+        conn,
+        strategy,
+        payload,
+        lane_id=resolved_lane,
+        lane_allows_live=allows_live,
+    )
 
     has_trade_actions = any(d.action.lower() in TRADE_ACTIONS for d in payload.decisions)
     if violations and has_trade_actions:
@@ -425,10 +520,10 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
         cursor = conn.execute(
             """
             INSERT INTO automation_runs (
-                run_at, automation_name, run_type, market_summary, self_critique, status, strategy_version,
-                plan_version, mode, buying_power, errors_json, cursor_run_id, usage_json,
-                budget_exceeded, expected_budget_usd, actual_cost_usd
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                run_at, automation_name, run_type, market_summary, self_critique, status,
+                strategy_version, plan_version, mode, buying_power, errors_json, cursor_run_id,
+                usage_json, budget_exceeded, expected_budget_usd, actual_cost_usd, lane_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_at,
@@ -447,6 +542,7 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
                 1 if budget_check.budget_exceeded else 0,
                 budget_check.expected_budget_usd,
                 budget_check.actual_cost_usd,
+                resolved_lane,
             ),
         )
         run_id = cursor.lastrowid
@@ -484,6 +580,7 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
             if action in SIMULATED_BUY_ACTIONS or action in SIMULATED_SELL_ACTIONS:
                 _apply_simulated_trade(
                     conn,
+                    resolved_lane,
                     decision.symbol,
                     action,
                     decision.amount_usd,
@@ -492,6 +589,7 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
 
             update_symbol_memory_for_decision(
                 conn,
+                lane_id=resolved_lane,
                 run_id=run_id,
                 symbol=decision.symbol,
                 action=action,
@@ -516,9 +614,10 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
 
         if status == RUN_STATUS_COMPLETED:
             consume_pending_market_signals(conn)
-            portfolio = get_simulated_portfolio(conn)
+            portfolio = get_simulated_portfolio(conn, resolved_lane)
             record_portfolio_snapshot(
                 conn,
+                lane_id=resolved_lane,
                 run_id=run_id,
                 source="run",
                 snapshot_at=run_at,
@@ -569,13 +668,20 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
         if payload.cursor_run_id and "cursor_run_id" in str(exc).lower():
             existing = get_run_by_cursor_run_id(conn, payload.cursor_run_id)
             if existing is not None:
-                return build_run_create_response(conn, existing.id, duplicate=True)
+                lane_id = existing.lane_id or get_primary_lane_id(conn)
+                return build_run_create_response(
+                    conn, existing.id, lane_id=lane_id, duplicate=True
+                )
         raise ValueError("Failed to create run due to a database constraint") from exc
     except Exception:
         raise
 
     return build_run_create_response(
-        conn, run_id, safety_violations=violations, budget_check=budget_check
+        conn,
+        run_id,
+        lane_id=resolved_lane,
+        safety_violations=violations,
+        budget_check=budget_check,
     )
 
 

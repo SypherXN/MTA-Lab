@@ -158,7 +158,9 @@ def backfill_freshness_from_existing(conn: sqlite3.Connection) -> None:
     if order:
         touch_data_source(conn, "robinhood_orders", updated_at=order)
 
-    cash = conn.execute("SELECT updated_at AS t FROM simulated_cash WHERE id = 1").fetchone()
+    cash = conn.execute(
+        "SELECT updated_at AS t FROM simulated_cash ORDER BY lane_id LIMIT 1"
+    ).fetchone()
     if cash and cash["t"]:
         touch_data_source(conn, "portfolio", updated_at=cash["t"])
 

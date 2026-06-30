@@ -38,6 +38,7 @@ def _buy_action_placeholders() -> str:
 def get_active_symbol_cooldowns(
     conn: sqlite3.Connection,
     cooldown_hours: float,
+    lane_id: int | None = None,
 ) -> dict[str, SymbolCooldownOut]:
     if cooldown_hours <= 0:
         return {}
@@ -46,6 +47,12 @@ def get_active_symbol_cooldowns(
     cooldowns: dict[str, SymbolCooldownOut] = {}
     buy_actions = tuple(BUY_ACTIONS)
 
+    lane_filter = ""
+    params: list = [RUN_STATUS_COMPLETED, *buy_actions]
+    if lane_id is not None:
+        lane_filter = " AND r.lane_id = ?"
+        params.append(lane_id)
+
     rows = conn.execute(
         f"""
         SELECT d.symbol, d.action, MAX(d.created_at) AS last_trade_at
@@ -53,9 +60,10 @@ def get_active_symbol_cooldowns(
         JOIN automation_runs r ON r.id = d.run_id
         WHERE lower(r.status) = ?
           AND lower(d.action) IN ({_buy_action_placeholders()})
+          {lane_filter}
         GROUP BY d.symbol
         """,
-        (RUN_STATUS_COMPLETED, *buy_actions),
+        tuple(params),
     ).fetchall()
 
     for row in rows:
@@ -100,6 +108,31 @@ def get_active_strategy(conn: sqlite3.Connection) -> StrategyOut:
     )
 
 
+def get_strategy_by_version(conn: sqlite3.Connection, version: str) -> StrategyOut:
+    row = conn.execute(
+        """
+        SELECT version, name, mode, trading_enabled, kill_switch, rules_json
+        FROM strategies
+        WHERE version = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (version,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"Strategy version {version} not found")
+
+    rules = StrategyRules.model_validate(json.loads(row["rules_json"]))
+    return StrategyOut(
+        version=row["version"],
+        name=row["name"],
+        mode=row["mode"],
+        trading_enabled=bool(row["trading_enabled"]),
+        kill_switch=bool(row["kill_switch"]),
+        rules=rules,
+    )
+
+
 def trading_is_allowed(strategy: StrategyOut) -> bool:
     return (
         strategy.mode == "live"
@@ -108,9 +141,15 @@ def trading_is_allowed(strategy: StrategyOut) -> bool:
     )
 
 
-def get_daily_trade_usage(conn: sqlite3.Connection) -> tuple[int, float]:
+def get_daily_trade_usage(conn: sqlite3.Connection, lane_id: int | None = None) -> tuple[int, float]:
+    lane_filter = ""
+    params: list = [_today_utc()]
+    if lane_id is not None:
+        lane_filter = " AND r.lane_id = ?"
+        params.append(lane_id)
+
     row = conn.execute(
-        """
+        f"""
         SELECT
             COUNT(*) AS trade_count,
             COALESCE(SUM(d.amount_usd), 0) AS notional
@@ -121,8 +160,9 @@ def get_daily_trade_usage(conn: sqlite3.Connection) -> tuple[int, float]:
               'buy', 'sell', 'place_buy', 'place_sell',
               'simulated_buy', 'simulated_sell', 'paper_buy', 'paper_sell'
           )
+          {lane_filter}
         """,
-        (_today_utc(),),
+        tuple(params),
     ).fetchone()
     return int(row["trade_count"]), float(row["notional"])
 
@@ -137,8 +177,12 @@ def allowed_actions_for_strategy(strategy: StrategyOut) -> list[str]:
     return sorted(actions)
 
 
-def build_safety_snapshot(conn: sqlite3.Connection, strategy: StrategyOut) -> SafetySnapshotOut:
-    daily_trades_used, daily_notional_used = get_daily_trade_usage(conn)
+def build_safety_snapshot(
+    conn: sqlite3.Connection,
+    strategy: StrategyOut,
+    lane_id: int | None = None,
+) -> SafetySnapshotOut:
+    daily_trades_used, daily_notional_used = get_daily_trade_usage(conn, lane_id=lane_id)
     max_trades = strategy.rules.max_daily_trades
     max_notional = strategy.rules.max_daily_notional_usd
 
@@ -164,19 +208,24 @@ def validate_run_decisions(
     conn: sqlite3.Connection,
     strategy: StrategyOut,
     payload: RunCreate,
+    *,
+    lane_id: int | None = None,
+    lane_allows_live: bool = False,
 ) -> list[str]:
     violations: list[str] = []
     action_lower = {d.action.lower() for d in payload.decisions}
 
     if any(action in LIVE_ACTIONS for action in action_lower):
-        if strategy.mode != "live":
+        if not lane_allows_live:
+            violations.append("Live trade actions are blocked for this simulation lane")
+        elif strategy.mode != "live":
             violations.append("Live trade actions are blocked while mode is not live")
         if not strategy.trading_enabled:
             violations.append("Live trade actions are blocked while trading_enabled is false")
         if strategy.kill_switch:
             violations.append("Live trade actions are blocked while kill_switch is true")
 
-    daily_trades, daily_notional = get_daily_trade_usage(conn)
+    daily_trades, daily_notional = get_daily_trade_usage(conn, lane_id=lane_id)
     projected_trades = daily_trades
     projected_notional = daily_notional
 
@@ -208,7 +257,9 @@ def validate_run_decisions(
     if projected_notional > strategy.rules.max_daily_notional_usd:
         violations.append("Run would exceed max_daily_notional_usd")
 
-    active_cooldowns = get_active_symbol_cooldowns(conn, strategy.rules.symbol_cooldown_hours)
+    active_cooldowns = get_active_symbol_cooldowns(
+        conn, strategy.rules.symbol_cooldown_hours, lane_id=lane_id
+    )
     for decision in payload.decisions:
         action = decision.action.lower()
         if action not in BUY_ACTIONS:

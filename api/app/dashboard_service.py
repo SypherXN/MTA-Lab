@@ -6,7 +6,7 @@ import json
 import sqlite3
 
 from app.decision_utils import DECISION_SELECT_COLUMNS, decision_summary_from_row
-from app.run_utils import RUN_SUMMARY_SELECT, run_summary_from_row
+from app.run_utils import RUN_SUMMARY_FROM, RUN_SUMMARY_SELECT, run_summary_from_row
 from app.schemas import (
     CursorUsageImportRequest,
     CursorUsageOut,
@@ -26,8 +26,8 @@ def get_dashboard_runs(conn: sqlite3.Connection, limit: int = 50) -> list[RunSum
         for row in conn.execute(
             f"""
             SELECT {RUN_SUMMARY_SELECT}
-            FROM automation_runs
-            ORDER BY id DESC
+            FROM {RUN_SUMMARY_FROM}
+            ORDER BY r.id DESC
             LIMIT ?
             """,
             (limit,),
@@ -205,13 +205,15 @@ def get_dashboard_portfolio_snapshots(
     since: str | None = None,
     until: str | None = None,
     run_id: int | None = None,
+    lane_id: int | None = None,
 ) -> list[PortfolioSnapshotOut]:
     rows = get_portfolio_snapshots(
-        conn, limit=limit, since=since, until=until, run_id=run_id
+        conn, limit=limit, since=since, until=until, run_id=run_id, lane_id=lane_id
     )
     return [
         PortfolioSnapshotOut(
             id=row["id"],
+            lane_id=row["lane_id"] if "lane_id" in row.keys() else None,
             snapshot_at=row["snapshot_at"],
             run_id=row["run_id"],
             cash_usd=float(row["cash_usd"]),
@@ -227,8 +229,9 @@ def get_dashboard_portfolio_snapshots(
 
 def get_dashboard_portfolio_snapshot_summary(
     conn: sqlite3.Connection,
+    lane_id: int | None = None,
 ) -> PortfolioSnapshotSummaryOut | None:
-    summary = get_portfolio_snapshot_summary(conn)
+    summary = get_portfolio_snapshot_summary(conn, lane_id=lane_id)
     if summary is None:
         return None
     return PortfolioSnapshotSummaryOut.model_validate(summary)
@@ -346,12 +349,18 @@ def export_json(conn: sqlite3.Connection, export_type: str = "all") -> str:
 def get_mobile_status(conn: sqlite3.Connection) -> MobileStatusOut:
     from app.alert_state_service import open_alert_count
     from app.budget_service import get_usage_budget
+    from app.lane_service import list_lanes
     from app.preflight_service import get_live_preflight
     from app.services import get_simulated_portfolio
     from app.safety import get_active_strategy
 
     strategy = get_active_strategy(conn)
-    portfolio = get_simulated_portfolio(conn)
+    live_lane = next(
+        (lane for lane in list_lanes(conn) if lane.lane_role == "live" and lane.status == "active"),
+        None,
+    )
+    equity_lane = live_lane.id if live_lane else 1
+    portfolio = get_simulated_portfolio(conn, equity_lane)
     last_run = conn.execute(
         "SELECT run_at, status FROM automation_runs ORDER BY id DESC LIMIT 1"
     ).fetchone()
@@ -367,4 +376,6 @@ def get_mobile_status(conn: sqlite3.Connection) -> MobileStatusOut:
         last_run_status=last_run["status"] if last_run else None,
         preflight_ready=preflight.ready_for_live,
         budget_ok=budget.budget_ok,
+        live_lane_id=live_lane.id if live_lane else None,
+        live_lane_name=live_lane.name if live_lane else None,
     )

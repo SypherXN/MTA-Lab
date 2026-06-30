@@ -11,10 +11,12 @@ Use this as the standing instructions for the Cursor Automation named `mta-resea
 
 ## Required run order
 
-1. `GET {API_BASE}/api/automation/plan`
+**Multi-lane:** When `MTA_LANE_ID` is set (or your automation targets a specific approach), append `?lane_id={N}` to context/plan/memory endpoints and include `"lane_id": N` on `POST /api/automation/runs`. See [multi-lane-simulation.md](multi-lane-simulation.md).
+
+1. `GET {API_BASE}/api/automation/plan?lane_id={N}` (optional `lane_id`)
    - Load the API-owned agent plan (run order, required inputs, scoring rules, stop conditions).
    - If `MTA_READ_API_KEY` is configured, send header `X-API-Key: {READ_OR_WRITE_API_KEY}`.
-2. `GET {API_BASE}/api/automation/context`
+2. `GET {API_BASE}/api/automation/context?lane_id={N}` (optional `lane_id`)
    - If `check_needed` is true, prioritize symbols/messages in `market_signals`.
    - Review `freshness_checks`: if `ready_for_analysis` is false, do not open new positions; hold/skip and cite `warnings` in `market_summary`.
    - Review `intervention_status`: if `intervention_required` is true, follow [intervention protocol](../intervention-protocol.md) (critical → failed run; high → hold/skip only).
@@ -37,7 +39,7 @@ Use this as the standing instructions for the Cursor Automation named `mta-resea
    - Read `recent_news` from context and `GET {API_BASE}/api/automation/news?symbol={SYMBOL}` per symbol when needed.
    - When you find material headlines, earnings, or macro items from external sources, ingest summaries via `POST {API_BASE}/api/admin/news/import` (write key).
    - Use news in `news` scores and `action_rationale`; do not trade on stale or missing news without noting the gap.
-9. For **each symbol** you will analyze, call `GET {API_BASE}/api/automation/symbols/{SYMBOL}/memory` (required).
+9. For **each symbol** you will analyze, call `GET {API_BASE}/api/automation/symbols/{SYMBOL}/memory?lane_id={N}` (required).
    - Use prior decisions, cooldowns, position, P&L, notes, signals, and `recent_news` in your analysis.
    - If memory fetch fails for a symbol, skip that symbol and note the error.
 10. Analyze using:

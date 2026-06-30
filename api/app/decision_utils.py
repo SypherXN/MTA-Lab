@@ -9,6 +9,11 @@ DECISION_SELECT_COLUMNS = """
     risk_score, action_rationale, review_output, mode, amount_usd, created_at, order_id
 """
 
+DECISION_SELECT_ALIASED = """
+    d.id, d.run_id, d.symbol, d.action, d.reason, d.confidence, d.technical_score, d.news_score,
+    d.risk_score, d.action_rationale, d.review_output, d.mode, d.amount_usd, d.created_at, d.order_id
+"""
+
 
 def scores_from_row(row: sqlite3.Row) -> DecisionScoresOut | None:
     technical = row["technical_score"]

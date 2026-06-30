@@ -20,6 +20,37 @@ CREATE TABLE IF NOT EXISTS manual_notes (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS simulation_lanes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    strategy_version TEXT NOT NULL,
+    plan_version TEXT NOT NULL,
+    lane_role TEXT NOT NULL DEFAULT 'research'
+        CHECK (lane_role IN ('research', 'shadow', 'live')),
+    status TEXT NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'paused', 'archived')),
+    initial_cash_usd REAL NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_simulation_lanes_status
+    ON simulation_lanes(status, lane_role);
+
+CREATE TABLE IF NOT EXISTS lane_live_periods (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lane_id INTEGER NOT NULL REFERENCES simulation_lanes(id),
+    started_at TEXT NOT NULL,
+    ended_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_lane_live_periods_lane
+    ON lane_live_periods(lane_id, started_at);
+
+CREATE INDEX IF NOT EXISTS idx_lane_live_periods_open
+    ON lane_live_periods(ended_at);
+
 CREATE TABLE IF NOT EXISTS automation_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_at TEXT NOT NULL,
@@ -38,6 +69,7 @@ CREATE TABLE IF NOT EXISTS automation_runs (
     budget_exceeded INTEGER NOT NULL DEFAULT 0,
     expected_budget_usd REAL,
     actual_cost_usd REAL,
+    lane_id INTEGER REFERENCES simulation_lanes(id),
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -60,17 +92,19 @@ CREATE TABLE IF NOT EXISTS decisions (
 );
 
 CREATE TABLE IF NOT EXISTS simulated_cash (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
+    lane_id INTEGER PRIMARY KEY REFERENCES simulation_lanes(id),
     cash_usd REAL NOT NULL,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE TABLE IF NOT EXISTS simulated_positions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL UNIQUE,
+    lane_id INTEGER NOT NULL REFERENCES simulation_lanes(id),
+    symbol TEXT NOT NULL,
     quantity REAL NOT NULL,
     avg_cost REAL NOT NULL,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(lane_id, symbol)
 );
 
 CREATE TABLE IF NOT EXISTS cursor_usage (
@@ -178,6 +212,7 @@ CREATE INDEX IF NOT EXISTS idx_dashboard_sessions_expires ON dashboard_sessions(
 
 CREATE TABLE IF NOT EXISTS portfolio_snapshots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lane_id INTEGER NOT NULL DEFAULT 1 REFERENCES simulation_lanes(id),
     snapshot_at TEXT NOT NULL,
     run_id INTEGER REFERENCES automation_runs(id) ON DELETE SET NULL,
     cash_usd REAL NOT NULL,
@@ -189,9 +224,11 @@ CREATE TABLE IF NOT EXISTS portfolio_snapshots (
 );
 
 CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_at ON portfolio_snapshots(snapshot_at);
+CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_lane ON portfolio_snapshots(lane_id, snapshot_at);
 
 CREATE TABLE IF NOT EXISTS symbol_memory_summaries (
-    symbol TEXT PRIMARY KEY,
+    lane_id INTEGER NOT NULL DEFAULT 1,
+    symbol TEXT NOT NULL,
     last_action TEXT,
     last_buy_at TEXT,
     last_sell_at TEXT,
@@ -202,7 +239,8 @@ CREATE TABLE IF NOT EXISTS symbol_memory_summaries (
     realized_pnl_usd REAL NOT NULL DEFAULT 0,
     unrealized_pnl_usd REAL,
     risk_notes_json TEXT,
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (lane_id, symbol)
 );
 
 CREATE TABLE IF NOT EXISTS schema_migrations (

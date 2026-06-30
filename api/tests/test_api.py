@@ -460,11 +460,12 @@ class PlanVersionHistoryTests(unittest.TestCase):
         self.assertEqual(second.json()["plan"]["content_hash"], content_hash)
 
     def test_run_records_plan_version(self):
-        plan = client.get("/api/automation/plan").json()
+        context = client.get("/api/automation/context").json()
         run = client.post(
             "/api/automation/runs",
             json={
                 "cursor_run_id": "plan-version-run-1",
+                "self_critique": "Hold while verifying plan version stamp.",
                 "decisions": [{"symbol": "SPY", "action": "hold", "reason": "Plan version test."}],
             },
             headers={"X-API-Key": "test-key"},
@@ -472,7 +473,7 @@ class PlanVersionHistoryTests(unittest.TestCase):
         self.assertEqual(run.status_code, 200)
         run_id = run.json()["run_id"]
         detail = client.get(f"/api/automation/runs/{run_id}").json()
-        self.assertEqual(detail["plan_version"], plan["version"])
+        self.assertEqual(detail["plan_version"], context["plan_version"])
 
 
 class DecisionScoringTests(unittest.TestCase):
@@ -559,11 +560,34 @@ class DecisionScoringTests(unittest.TestCase):
 
 
 class Tier3Tests(unittest.TestCase):
+    def setUp(self):
+        strategy_resp = client.patch(
+            "/api/automation/strategy",
+            json={
+                "rules": {
+                    "allowed_symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
+                    "max_order_usd": 500,
+                    "max_daily_trades": 500,
+                    "max_daily_notional_usd": 500000,
+                    "require_review_before_place": True,
+                    "watchlist": ["SPY", "QQQ", "AAPL", "MSFT"],
+                    "symbol_cooldown_hours": 24,
+                }
+            },
+            headers={"X-API-Key": "test-key"},
+        ).json()
+        client.patch(
+            "/api/admin/lanes/1",
+            json={"strategy_version": strategy_resp["version"]},
+            headers={"X-API-Key": "test-key"},
+        )
+
     def test_context_includes_symbol_cooldowns_after_buy(self):
         client.post(
             "/api/automation/runs",
             json={
                 "cursor_run_id": "cooldown-context-1",
+                "self_critique": "SPY buy to test cooldown visibility.",
                 "decisions": [
                     {
                         "symbol": "SPY",
@@ -586,6 +610,7 @@ class Tier3Tests(unittest.TestCase):
             "/api/automation/runs",
             json={
                 "cursor_run_id": "cooldown-block-1",
+                "self_critique": "First QQQ buy for cooldown block test.",
                 "decisions": [
                     {
                         "symbol": "QQQ",
@@ -602,6 +627,7 @@ class Tier3Tests(unittest.TestCase):
             "/api/automation/runs",
             json={
                 "cursor_run_id": "cooldown-block-2",
+                "self_critique": "Repeat buy should be blocked by cooldown.",
                 "decisions": [
                     {
                         "symbol": "QQQ",
@@ -653,19 +679,24 @@ class Tier3Tests(unittest.TestCase):
 class Tier4Tests(unittest.TestCase):
     def setUp(self):
         client.post("/api/admin/portfolio/reset", headers={"X-API-Key": "test-key"})
-        client.patch(
+        strategy_resp = client.patch(
             "/api/automation/strategy",
             json={
                 "rules": {
                     "allowed_symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
                     "max_order_usd": 500,
-                    "max_daily_trades": 50,
-                    "max_daily_notional_usd": 50000,
+                    "max_daily_trades": 500,
+                    "max_daily_notional_usd": 500000,
                     "require_review_before_place": True,
                     "watchlist": ["SPY", "QQQ", "AAPL", "MSFT"],
                     "symbol_cooldown_hours": 0,
                 }
             },
+            headers={"X-API-Key": "test-key"},
+        ).json()
+        client.patch(
+            "/api/admin/lanes/1",
+            json={"strategy_version": strategy_resp["version"]},
             headers={"X-API-Key": "test-key"},
         )
 
@@ -674,6 +705,7 @@ class Tier4Tests(unittest.TestCase):
             "/api/automation/runs",
             json={
                 "cursor_run_id": "quote-portfolio-1",
+                "self_critique": "AAPL simulated buy for quote mark test.",
                 "decisions": [
                     {
                         "symbol": "AAPL",
@@ -703,6 +735,7 @@ class Tier4Tests(unittest.TestCase):
             "/api/automation/runs",
             json={
                 "cursor_run_id": "quote-run-buy-1",
+                "self_critique": "MSFT buy to seed quote cache test.",
                 "decisions": [
                     {
                         "symbol": "MSFT",
@@ -889,18 +922,24 @@ class Tier5Tests(unittest.TestCase):
 class PriorityGroupBatchTests(unittest.TestCase):
     def setUp(self):
         client.post("/api/admin/portfolio/reset", headers={"X-API-Key": "test-key"})
-        client.patch(
+        strategy_resp = client.patch(
             "/api/automation/strategy",
             json={
                 "rules": {
                     "allowed_symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
                     "max_order_usd": 500,
-                    "max_daily_trades": 50,
-                    "max_daily_notional_usd": 50000,
+                    "max_daily_trades": 500,
+                    "max_daily_notional_usd": 500000,
                     "require_review_before_place": True,
                     "watchlist": ["SPY", "QQQ", "AAPL", "MSFT"],
+                    "symbol_cooldown_hours": 0,
                 }
             },
+            headers={"X-API-Key": "test-key"},
+        ).json()
+        client.patch(
+            "/api/admin/lanes/1",
+            json={"strategy_version": strategy_resp["version"]},
             headers={"X-API-Key": "test-key"},
         )
 
@@ -1002,6 +1041,7 @@ class PriorityGroupBatchTests(unittest.TestCase):
             "/api/automation/runs",
             json={
                 "cursor_run_id": "memory-endpoint-1",
+                "self_critique": "MSFT buy within research limits.",
                 "decisions": [
                     {
                         "symbol": "MSFT",
@@ -1025,10 +1065,29 @@ class PriorityGroupBatchTests(unittest.TestCase):
     def test_symbol_memory_summary_table_updated(self):
         from app.database import get_connection
 
+        response = client.post(
+            "/api/automation/runs",
+            json={
+                "cursor_run_id": "memory-summary-table-1",
+                "self_critique": "MSFT buy for summary table check.",
+                "decisions": [
+                    {
+                        "symbol": "MSFT",
+                        "action": "simulated_buy",
+                        "reason": "Summary table test.",
+                        "amount_usd": 200,
+                        "fill_price": 400,
+                    }
+                ],
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(response.status_code, 200)
+
         conn = get_connection()
         try:
             row = conn.execute(
-                "SELECT last_action, trade_count FROM symbol_memory_summaries WHERE symbol = 'MSFT'"
+                "SELECT last_action, trade_count FROM symbol_memory_summaries WHERE lane_id = 1 AND symbol = 'MSFT'"
             ).fetchone()
             self.assertIsNotNone(row)
             self.assertEqual(row["last_action"], "simulated_buy")
@@ -1494,6 +1553,7 @@ class PriorityGroupG1Tests(unittest.TestCase):
             "/api/automation/runs",
             json={
                 "cursor_run_id": "audit-g1-1",
+                "self_critique": "Hold for audit drill-down test.",
                 "decisions": [{"symbol": "QQQ", "action": "hold", "reason": "Audit test."}],
             },
             headers={"X-API-Key": "test-key"},
@@ -1502,6 +1562,237 @@ class PriorityGroupG1Tests(unittest.TestCase):
         detail = client.get(f"/api/automation/runs/{run_id}").json()
         self.assertIn("audit", detail)
         self.assertEqual(detail["audit"]["run_id"], run_id)
+
+
+class SimulationLaneTests(unittest.TestCase):
+    def setUp(self):
+        strategy_resp = client.patch(
+            "/api/automation/strategy",
+            json={
+                "rules": {
+                    "allowed_symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
+                    "max_order_usd": 500,
+                    "max_daily_trades": 500,
+                    "max_daily_notional_usd": 500000,
+                    "require_review_before_place": True,
+                    "watchlist": ["SPY", "QQQ", "AAPL", "MSFT"],
+                    "symbol_cooldown_hours": 0,
+                }
+            },
+            headers={"X-API-Key": "test-key"},
+        ).json()
+        client.patch(
+            "/api/admin/lanes/1",
+            json={"strategy_version": strategy_resp["version"]},
+            headers={"X-API-Key": "test-key"},
+        )
+
+    def test_primary_lane_in_context(self):
+        context = client.get("/api/automation/context").json()
+        self.assertEqual(context["lane_id"], 1)
+        self.assertEqual(context["lane_name"], "primary")
+        self.assertIn("agent_plan", context)
+
+    def test_two_lanes_isolated_portfolios(self):
+        strategy_version = client.get("/api/automation/context").json()["strategy"]["version"]
+        lane_b = client.post(
+            "/api/admin/lanes",
+            json={
+                "name": "challenger",
+                "strategy_version": strategy_version,
+                "plan_version": "v1",
+                "lane_role": "shadow",
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(lane_b.status_code, 200)
+        lane_b_id = lane_b.json()["id"]
+
+        buy_a = client.post(
+            "/api/automation/runs",
+            json={
+                "cursor_run_id": "lane-a-buy-1",
+                "lane_id": 1,
+                "self_critique": "Lane A buy.",
+                "decisions": [
+                    {
+                        "symbol": "SPY",
+                        "action": "simulated_buy",
+                        "reason": "Lane A only.",
+                        "amount_usd": 100,
+                        "fill_price": 100,
+                    }
+                ],
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(buy_a.status_code, 200)
+
+        portfolio_b = client.get(f"/api/automation/context?lane_id={lane_b_id}").json()
+        self.assertEqual(portfolio_b["simulated_portfolio"]["cash_usd"], 10000.0)
+        self.assertEqual(len(portfolio_b["simulated_portfolio"]["positions"]), 0)
+
+        portfolio_a = client.get("/api/automation/context?lane_id=1").json()
+        self.assertLess(portfolio_a["simulated_portfolio"]["cash_usd"], 10000.0)
+
+    def test_lane_compare_equity(self):
+        client.post(
+            "/api/automation/runs",
+            json={
+                "cursor_run_id": "lane-compare-equity-1",
+                "lane_id": 1,
+                "self_critique": "Seed snapshot for compare.",
+                "decisions": [
+                    {
+                        "symbol": "SPY",
+                        "action": "simulated_buy",
+                        "reason": "Compare equity seed.",
+                        "amount_usd": 50,
+                        "fill_price": 100,
+                    }
+                ],
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        compare = client.get("/api/dashboard/lanes/compare").json()
+        self.assertGreaterEqual(len(compare["lanes"]), 1)
+        primary = next(row for row in compare["lanes"] if row["lane_id"] == 1)
+        self.assertIsNotNone(primary["equity_change_usd"])
+
+    def test_lane_reset(self):
+        reset = client.post(
+            "/api/admin/lanes/1/reset",
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(reset.status_code, 200)
+        self.assertEqual(reset.json()["cash_usd"], 10000.0)
+
+    def test_schema_migration_011(self):
+        from app.database import get_connection
+
+        conn = get_connection()
+        try:
+            versions = [
+                row["version"]
+                for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
+            ]
+            self.assertIn("011_simulation_lanes", versions)
+            lane_count = conn.execute("SELECT COUNT(*) AS c FROM simulation_lanes").fetchone()["c"]
+            self.assertGreaterEqual(lane_count, 1)
+        finally:
+            conn.close()
+
+    def test_live_history_endpoint(self):
+        response = client.get("/api/dashboard/lanes/live-history")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("periods", body)
+        self.assertIn("combined_snapshots", body)
+        self.assertIn("description", body)
+
+    def test_live_periods_preserved_when_promoting_new_lane(self):
+        from unittest.mock import MagicMock, patch
+
+        strategy_version = client.get("/api/automation/context").json()["strategy"]["version"]
+        lane_b = client.post(
+            "/api/admin/lanes",
+            json={
+                "name": "live-challenger",
+                "strategy_version": strategy_version,
+                "plan_version": "v1",
+                "lane_role": "shadow",
+            },
+            headers={"X-API-Key": "test-key"},
+        ).json()["id"]
+
+        seed_a = client.post(
+            "/api/automation/runs",
+            json={
+                "cursor_run_id": "live-period-a-1",
+                "lane_id": 1,
+                "self_critique": "Seed lane A snapshots.",
+                "decisions": [
+                    {
+                        "symbol": "SPY",
+                        "action": "simulated_buy",
+                        "reason": "Lane A live stint seed.",
+                        "amount_usd": 100,
+                        "fill_price": 100,
+                    }
+                ],
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(seed_a.status_code, 200)
+
+        seed_b = client.post(
+            "/api/automation/runs",
+            json={
+                "cursor_run_id": "live-period-b-1",
+                "lane_id": lane_b,
+                "self_critique": "Seed lane B snapshots.",
+                "decisions": [
+                    {
+                        "symbol": "QQQ",
+                        "action": "simulated_buy",
+                        "reason": "Lane B live stint seed.",
+                        "amount_usd": 100,
+                        "fill_price": 100,
+                    }
+                ],
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(seed_b.status_code, 200)
+
+        ready = MagicMock(ready_for_live=True)
+        with patch("app.preflight_service.get_live_preflight", return_value=ready):
+            promote_a = client.post(
+                "/api/admin/lanes/1/promote-to-live",
+                headers={"X-API-Key": "test-key"},
+            )
+        self.assertEqual(promote_a.status_code, 200)
+        self.assertEqual(promote_a.json()["lane"]["lane_role"], "live")
+
+        with patch("app.preflight_service.get_live_preflight", return_value=ready):
+            promote_b = client.post(
+                f"/api/admin/lanes/{lane_b}/promote-to-live",
+                headers={"X-API-Key": "test-key"},
+            )
+        self.assertEqual(promote_b.status_code, 200)
+        self.assertEqual(promote_b.json()["previous_live_lane_id"], 1)
+
+        lane_a = client.get("/api/dashboard/lanes").json()
+        primary = next(row for row in lane_a if row["id"] == 1)
+        challenger = next(row for row in lane_a if row["id"] == lane_b)
+        self.assertEqual(primary["lane_role"], "shadow")
+        self.assertEqual(challenger["lane_role"], "live")
+
+        history = client.get("/api/dashboard/lanes/live-history").json()
+        self.assertEqual(len(history["periods"]), 2)
+        self.assertIsNone(history["periods"][-1]["ended_at"])
+        self.assertIsNotNone(history["periods"][0]["ended_at"])
+        self.assertEqual(history["current_live_lane_id"], lane_b)
+
+        portfolio_a = client.get("/api/dashboard/portfolio?lane_id=1").json()
+        self.assertLess(portfolio_a["cash_usd"], 10000.0)
+        compare = client.get("/api/dashboard/lanes/compare").json()
+        row_a = next(row for row in compare["lanes"] if row["lane_id"] == 1)
+        self.assertGreater(row_a["run_count"], 0)
+
+    def test_schema_migration_012(self):
+        from app.database import get_connection
+
+        conn = get_connection()
+        try:
+            versions = [
+                row["version"]
+                for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
+            ]
+            self.assertIn("012_lane_live_periods", versions)
+            conn.execute("SELECT 1 FROM lane_live_periods LIMIT 1")
+        finally:
+            conn.close()
 
 
 if __name__ == "__main__":
