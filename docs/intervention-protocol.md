@@ -38,6 +38,8 @@ Also available on context as `intervention_status`.
 
 ## Escalation workflow
 
+Review triggers in the dashboard **Strategy** card (intervention section) or **Alert Inbox**. See [dashboard/README.md](../dashboard/README.md).
+
 ```mermaid
 flowchart TD
     start[Run starts] --> check[GET intervention/check]

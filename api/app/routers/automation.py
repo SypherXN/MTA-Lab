@@ -17,6 +17,7 @@ from app.plan_service import (
     update_active_agent_plan,
 )
 from app.intervention_service import evaluate_intervention
+from app.lane_execution_service import get_lane_turn
 from app.live_promotion_service import get_live_promotion_status
 from app.market_input_service import get_market_input_bundle
 from app.memory_service import get_symbol_memory
@@ -40,6 +41,7 @@ from app.schemas import (
     DataSourceFreshnessOut,
     InterventionStatusOut,
     LivePromotionStatusOut,
+    LaneTurnOut,
     MarketInputBundleOut,
     NewsEventOut,
     PortfolioSnapshotOut,
@@ -225,8 +227,25 @@ def automation_news(
 def automation_context(lane_id: int | None = None) -> AutomationContextOut:
     conn = get_connection()
     try:
-        return get_automation_context(conn, lane_id=lane_id)
+        result = get_automation_context(conn, lane_id=lane_id)
+        conn.commit()
+        return result
     except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@router.get("/lanes/turn", response_model=LaneTurnOut, dependencies=[ReadKeyDep])
+def automation_lane_turn(lane_id: int) -> LaneTurnOut:
+    conn = get_connection()
+    try:
+        result = get_lane_turn(conn, lane_id, acquire=True)
+        conn.commit()
+        return result
+    except ValueError as exc:
+        conn.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         conn.close()

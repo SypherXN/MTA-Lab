@@ -67,8 +67,8 @@ def ingest_news_events(
             ),
         )
         inserted += 1
-        if latest_at is None or event.event_at > latest_at:
-            latest_at = event.event_at
+        if latest_at is None or ingested_at > latest_at:
+            latest_at = ingested_at
 
     if inserted > 0:
         touch_data_source(

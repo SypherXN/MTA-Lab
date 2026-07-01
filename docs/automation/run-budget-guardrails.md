@@ -55,3 +55,4 @@ Per-run-type caps are defined in `api/app/budget_service.py` (`RUN_TYPE_BUDGET_U
 
 - [cost-aware-routing.md](../cost-aware-routing.md)
 - [multi-cadence.md](./multi-cadence.md)
+- [cost-tracking.md](../cost-tracking.md) — dashboard **Cost Dashboard** section

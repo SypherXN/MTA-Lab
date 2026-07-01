@@ -1,0 +1,5 @@
+# Daily SQLite backup — 03:00 UTC
+0 3 * * * /home/opc/MTA-Lab/api/scripts/backup-db.sh >> /home/opc/MTA-Lab/api/data/backup.log 2>&1
+
+# Or use the operator CLI after install-cron.sh:
+# /home/opc/MTA-Lab/api/scripts/mta-ctl.sh backup

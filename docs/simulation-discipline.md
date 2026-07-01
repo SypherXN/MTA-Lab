@@ -33,7 +33,8 @@ When logging `simulated_buy` or `simulated_sell`:
 - **Cash** — debited on buy, credited on sell (proceeds = shares × fill price).
 - **Positions** — average cost basis updated on buys; realized P&L on sells.
 - **Unrealized P&L** — mark-to-market using latest quote cache prices.
-- **Equity curve** — `portfolio_snapshots` on each completed run; dashboard charts from `GET /api/dashboard/portfolio/snapshots`.
+- **Equity curve** — `portfolio_snapshots` on each completed run; dashboard charts from `GET /api/dashboard/portfolio/snapshots?lane_id=`.
+- **Multi-lane** — each simulation lane has its own cash, positions, and snapshots. Select lane in the dashboard portfolio dropdown.
 
 ## Actions to avoid in research mode
 
@@ -55,4 +56,5 @@ Until then, keep using `simulated_buy` / `simulated_sell` for all trade logging.
 
 - [Safety gates](../safety-gates.md)
 - [Intervention protocol](../intervention-protocol.md)
+- [Multi-lane simulation](./automation/multi-lane-simulation.md)
 - [Research prompt](./automation/research-prompt.md)

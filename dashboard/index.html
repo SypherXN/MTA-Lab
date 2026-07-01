@@ -4,7 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MTA-Lab Dashboard</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180" />
+    <meta name="theme-color" content="#5fa878" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css?v=pastel-green" />
   </head>
   <body>
     <div id="login-screen" class="login-screen" hidden>
@@ -17,7 +27,7 @@
           <button type="submit">Sign in</button>
         </form>
         <p id="login-error" class="error" hidden></p>
-        <p class="login-hint">Uses <code>POST /api/auth/login</code> when dashboard password is configured on the API.</p>
+        <p class="login-hint">Only required when <code>MTA_DASHBOARD_PASSWORD</code> is set on the API. Local dev usually needs no password.</p>
       </article>
     </div>
 
@@ -43,22 +53,34 @@
         <section class="card lane-hero-card" style="margin-bottom: 24px">
           <h2>Live Money Track</h2>
           <p class="muted lane-intro">
-            Real Robinhood orders only flow through the <strong>live</strong> lane.
-            When you promote a different lane, the previous live lane becomes <strong>shadow</strong>
-            and keeps its full run and equity history. The chart below stitches together every lane
-            that has been live, in order.
+            Three layers: (1) each <strong>lane</strong> is a permanent paper track for one plan — full history always;
+            (2) only one lane is <strong>live</strong> at a time (real Robinhood orders);
+            (3) this panel stitches together every lane's live stint into one real-money timeline.
+            Promoting a new plan moves live deployment; former live lanes become shadow and keep all past runs.
           </p>
           <div id="live-money-track">Loading...</div>
         </section>
 
         <section class="card" style="margin-bottom: 24px">
           <h2>Simulation Lanes</h2>
+          <p class="muted">One lane per plan approach — each keeps its own complete paper history. Compare here; promote one to live when ready.</p>
           <div class="lane-role-legend">
             <span><span class="lane-badge live">live</span> Real money — only this lane places Robinhood orders</span>
             <span><span class="lane-badge shadow">shadow</span> Paper challenger — often a former live lane</span>
             <span><span class="lane-badge research">research</span> Paper-only experiment</span>
           </div>
           <div id="lanes-panel">Loading...</div>
+        </section>
+
+        <section class="card" style="margin-bottom: 24px">
+          <h2>Agent Plans</h2>
+          <p class="muted">
+            Each lane runs one pinned plan version. Plans are read-only here — edit
+            <code>plans/&lt;version&gt;.json</code> in GitHub, then sync on the server
+            (<code>python3 api/scripts/sync_plans_from_repo.py</code> or
+            <code>POST /api/admin/plans/sync-from-repo</code>).
+          </p>
+          <div id="agent-plans-panel">Loading...</div>
         </section>
 
         <section class="card" style="margin-bottom: 24px">
@@ -77,10 +99,9 @@
             <div id="safety-panel">Loading...</div>
           </article>
           <article class="card">
-            <div class="card-header-row">
-              <h2>Simulated Portfolio</h2>
-              <label class="lane-select-label">
-                Lane
+            <h2>Simulated Portfolio</h2>
+            <div class="control-form portfolio-lane-control">
+              <label for="portfolio-lane-select">Lane
                 <select id="portfolio-lane-select"></select>
               </label>
             </div>
@@ -180,7 +201,7 @@
       </div>
     </div>
 
-    <script src="config.js"></script>
-    <script src="app.js"></script>
+    <script src="config.js?v=pastel-green"></script>
+    <script src="app.js?v=pastel-green"></script>
   </body>
 </html>

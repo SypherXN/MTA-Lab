@@ -223,3 +223,153 @@ def update_active_agent_plan(
 
 def seed_plan_content(conn: sqlite3.Connection, plan_json: str) -> str:
     return _store_plan_content(conn, plan_json)
+
+
+def upsert_agent_plan_version(
+    conn: sqlite3.Connection,
+    *,
+    version: str,
+    name: str,
+    payload: AgentPlanPayload,
+    change_source: str = "github",
+    make_active: bool = False,
+) -> tuple[AgentPlanOut, bool]:
+    """Insert or update a plan pinned to version. Returns (plan, changed)."""
+    plan_json = canonical_plan_json(payload)
+    content_hash = _store_plan_content(conn, plan_json)
+    existing = conn.execute(
+        "SELECT version, name, content_hash FROM agent_plans WHERE version = ?",
+        (version,),
+    ).fetchone()
+    now = _iso_now()
+
+    if existing is not None:
+        if existing["content_hash"] == content_hash and existing["name"] == name:
+            row = conn.execute(
+                """
+                SELECT version, name, plan_json, content_hash, change_source, created_at, updated_at
+                FROM agent_plans WHERE version = ?
+                """,
+                (version,),
+            ).fetchone()
+            return _row_to_plan_out(conn, row), False
+
+        conn.execute(
+            """
+            UPDATE agent_plans
+            SET name = ?, plan_json = ?, content_hash = ?, change_source = ?, updated_at = ?
+            WHERE version = ?
+            """,
+            (name, plan_json, content_hash, change_source.strip() or "github", now, version),
+        )
+        return get_agent_plan_by_version(conn, version), True
+
+    if make_active:
+        conn.execute("UPDATE agent_plans SET is_active = 0, updated_at = ?", (now,))
+
+    conn.execute(
+        """
+        INSERT INTO agent_plans (
+            version, name, plan_json, content_hash, change_source, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            version,
+            name,
+            plan_json,
+            content_hash,
+            change_source.strip() or "github",
+            1 if make_active else 0,
+            now,
+            now,
+        ),
+    )
+    return get_agent_plan_by_version(conn, version), True
+
+
+def _load_plan_file(path) -> tuple[str, str, AgentPlanPayload, bool, str]:
+    import json
+    from pathlib import Path
+
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    version = str(raw.get("version") or Path(path).stem).strip()
+    if not version:
+        raise ValueError(f"{path.name}: missing version")
+    name = str(raw.get("name") or version).strip()
+    make_active = bool(raw.get("is_active", False))
+    change_source = str(raw.get("change_source") or "github").strip() or "github"
+
+    payload_data = raw.get("plan")
+    if payload_data is None:
+        payload_data = {
+            key: raw[key]
+            for key in ("run_order", "required_inputs", "scoring_rules", "data_sources", "stop_conditions")
+            if key in raw
+        }
+    payload = AgentPlanPayload.model_validate(payload_data)
+    return version, name, payload, make_active, change_source
+
+
+def sync_agent_plans_from_directory(conn: sqlite3.Connection, directory):
+    from app.schemas import AgentPlanSyncItemOut, AgentPlanSyncResponse
+    from pathlib import Path
+
+    root = Path(directory)
+    if not root.is_dir():
+        raise FileNotFoundError(f"Plans directory not found: {root}")
+
+    imported = 0
+    updated = 0
+    unchanged = 0
+    errors: list[str] = []
+    items: list[AgentPlanSyncItemOut] = []
+
+    for path in sorted(root.glob("*.json")):
+        try:
+            version, name, payload, make_active, change_source = _load_plan_file(path)
+            existed = (
+                conn.execute("SELECT 1 FROM agent_plans WHERE version = ?", (version,)).fetchone() is not None
+            )
+            _, changed = upsert_agent_plan_version(
+                conn,
+                version=version,
+                name=name,
+                payload=payload,
+                change_source=change_source,
+                make_active=make_active,
+            )
+            if changed:
+                if existed:
+                    updated += 1
+                    status = "updated"
+                else:
+                    imported += 1
+                    status = "imported"
+                items.append(
+                    AgentPlanSyncItemOut(
+                        version=version,
+                        name=name,
+                        status=status,
+                        message=f"Synced from {path.name}",
+                    )
+                )
+            else:
+                unchanged += 1
+                items.append(
+                    AgentPlanSyncItemOut(
+                        version=version,
+                        name=name,
+                        status="unchanged",
+                        message=f"No changes in {path.name}",
+                    )
+                )
+        except Exception as exc:
+            errors.append(f"{path.name}: {exc}")
+
+    return AgentPlanSyncResponse(
+        imported=imported,
+        updated=updated,
+        unchanged=unchanged,
+        errors=errors,
+        items=items,
+    )

@@ -38,6 +38,7 @@ from app.schemas import (
     LanePromoteResponse,
     LaneResetResponse,
     LaneUpdate,
+    AgentPlanSyncResponse,
 )
 
 from app.lane_service import (
@@ -47,7 +48,9 @@ from app.lane_service import (
     reset_lane_portfolio,
     update_lane,
 )
+from app.plan_service import sync_agent_plans_from_directory
 from app.services import reset_simulated_portfolio
+from app.config import settings
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -381,5 +384,21 @@ def compact_payload_store(payload: CompactPayloadStoreRequest) -> CompactPayload
         )
         conn.commit()
         return result
+    finally:
+        conn.close()
+
+
+@router.post("/plans/sync-from-repo", response_model=AgentPlanSyncResponse, dependencies=[WriteKeyDep])
+def sync_plans_from_repo() -> AgentPlanSyncResponse:
+    conn = get_connection()
+    try:
+        result = sync_agent_plans_from_directory(conn, settings.resolved_plans_dir())
+        conn.commit()
+        return result
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()

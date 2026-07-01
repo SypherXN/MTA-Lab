@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Convenience wrapper — run from repo root: ./scripts/mta status
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+exec "${ROOT}/api/scripts/mta-ctl.sh" "$@"

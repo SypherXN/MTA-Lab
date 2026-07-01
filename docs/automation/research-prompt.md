@@ -2,6 +2,8 @@
 
 Use this as the standing instructions for the Cursor Automation named `mta-research`.
 
+Agent plan content is maintained in the GitHub repo under `plans/*.json` and synced to the API — see [agent-plans.md](../agent-plans.md). The automation loads the lane's pinned plan via `GET /api/automation/plan?lane_id={N}`.
+
 ## Trigger
 
 - Schedule: `0 9 * * 1-5` (weekdays at 9:00 AM; adjust timezone in the Automations editor)
@@ -17,6 +19,7 @@ Use this as the standing instructions for the Cursor Automation named `mta-resea
    - Load the API-owned agent plan (run order, required inputs, scoring rules, stop conditions).
    - If `MTA_READ_API_KEY` is configured, send header `X-API-Key: {READ_OR_WRITE_API_KEY}`.
 2. `GET {API_BASE}/api/automation/context?lane_id={N}` (optional `lane_id`)
+   - If `lane_turn` is present and `lane_turn.granted` is **false**, exit immediately with a short summary (sequential mode — another lane is running or due first).
    - If `check_needed` is true, prioritize symbols/messages in `market_signals`.
    - Review `freshness_checks`: if `ready_for_analysis` is false, do not open new positions; hold/skip and cite `warnings` in `market_summary`.
    - Review `intervention_status`: if `intervention_required` is true, follow [intervention protocol](../intervention-protocol.md) (critical → failed run; high → hold/skip only).

@@ -70,13 +70,15 @@ python scripts/seed_sample_run.py
 |--------|------|------|---------|
 | GET | `/health` | No | Health + SQLite connectivity (`503` if DB down) |
 | GET | `/metrics` | No | Prometheus text metrics (runs, costs, alerts, DB size) |
+| GET | `/api/auth/status` | No | Whether dashboard login / read key is required |
 | POST | `/api/auth/login` | No | Dashboard login (`MTA_DASHBOARD_PASSWORD` required) |
 | POST | `/api/auth/logout` | Bearer | Revoke dashboard session |
-| GET | `/api/automation/plan` | Read* | Active agent plan (run order, inputs, scoring, stop conditions) |
+| GET | `/api/automation/plan` | Read* | Agent plan for lane (`?lane_id=`) or global active plan |
 | GET | `/api/automation/plans` | Read* | Plan version history (summaries) |
 | GET | `/api/automation/plans/{version}` | Read* | Specific plan version snapshot |
 | PATCH | `/api/automation/plan` | `X-API-Key` | Update plan (dedupes identical content; keeps last 20 versions) |
-| GET | `/api/automation/context` | Read* | Strategy + history + safety + cooldowns + `check_needed` + `valid_run_types` + lane context (`?lane_id=`) |
+| GET | `/api/automation/context` | Read* | Strategy + history + safety + cooldowns + `check_needed` + `valid_run_types` + lane context (`?lane_id=`) + `lane_turn` when sequential |
+| GET | `/api/automation/lanes/turn` | Read* | Acquire/check sequential lane turn (`?lane_id=`, requires `MTA_SEQUENTIAL_LANES=true`) |
 | GET | `/api/automation/symbols/{symbol}/memory` | Read* | Symbol memory (decisions, cooldown, position, notes, signals) |
 | GET | `/api/automation/preflight` | Read* | Live-trading readiness checklist |
 | GET | `/api/automation/live-promotion/status` | Read* | Latest live promotion request + preflight state |
@@ -138,13 +140,45 @@ python scripts/seed_sample_run.py
 | PATCH | `/api/admin/lanes/{id}` | `X-API-Key` | Update lane name/status/strategy/plan binding |
 | POST | `/api/admin/lanes/{id}/reset` | `X-API-Key` | Reset lane portfolio |
 | POST | `/api/admin/lanes/{id}/promote-to-live` | `X-API-Key` | Promote shadow/research lane to live |
+| POST | `/api/admin/plans/sync-from-repo` | `X-API-Key` | Import `plans/*.json` from repo into agent_plans |
 | POST | `/api/admin/payloads/store` | `X-API-Key` | Store compressed/truncated raw MCP/API payload |
 
 ### Ops scripts
 
-- `scripts/price_watcher.py` — import quotes and fire alerts on threshold moves (cron on OCI)
-- `deploy/install.sh` — bootstrap API on a VM
-- See `deploy/README.md` for systemd, nginx, and cron examples
+| Script | Purpose |
+|--------|---------|
+| `scripts/mta-ctl.sh` | Operator CLI: `status`, `update`, `logs`, `backup`, `sync-plans`, `install-service` |
+| `../scripts/mta` | Repo-root wrapper → `mta-ctl.sh` |
+| `deploy/update.sh` | Pull, pip install, sync plans, restart, health check |
+| `deploy/install-service.sh` | systemd unit — auto-start on boot, restart on crash |
+| `deploy/install-cron.sh` | Daily backup + weekly retention crontab |
+| `scripts/sync_plans_from_repo.py` | Import agent plans from `plans/*.json` (run after `git pull`) |
+| `scripts/backup-db.sh` | SQLite backup with rotation |
+| `scripts/run.sh` | Local dev server with reload |
+| `scripts/price_watcher.py` | Quote threshold alerts (cron on OCI) |
+| `deploy/install.sh` | Bootstrap venv + `.env` on a VM |
+
+Examples:
+
+```bash
+cd ~/MTA-Lab/api
+./deploy/install-service.sh
+./scripts/mta-ctl.sh status
+./scripts/mta-ctl.sh update
+./scripts/mta-ctl.sh logs -f
+```
+
+### Agent plans (repo sync)
+
+Plan JSON lives in [`plans/`](../plans/). After editing in GitHub:
+
+```bash
+./scripts/mta-ctl.sh sync-plans
+# or included in:
+./scripts/mta-ctl.sh update
+```
+
+See [`../docs/agent-plans.md`](../docs/agent-plans.md).
 
 \*Read auth applies only when `MTA_READ_API_KEY` is set in `.env`.
 
