@@ -1,0 +1,370 @@
+{
+  "version": "v2",
+  "name": "Technical Trend Research Plan",
+  "change_source": "github",
+  "run_order": [
+    {
+      "step": 1,
+      "action": "fetch_plan",
+      "description": "Load the active agent plan from the API.",
+      "endpoint": "GET /api/automation/plan",
+      "required": true
+    },
+    {
+      "step": 2,
+      "action": "fetch_context",
+      "description": "Load strategy, safety budget, history, notes, signals, and intervention status.",
+      "endpoint": "GET /api/automation/context",
+      "required": true
+    },
+    {
+      "step": 3,
+      "action": "check_budget",
+      "description": "Verify daily/monthly and per-run-type budget before proceeding; trim scope if exceeded.",
+      "required": true
+    },
+    {
+      "step": 4,
+      "action": "check_intervention",
+      "description": "Verify no critical intervention triggers before proceeding.",
+      "endpoint": "GET /api/automation/intervention/check",
+      "required": true
+    },
+    {
+      "step": 5,
+      "action": "fetch_market_state",
+      "description": "Read portfolio, positions, watchlist quotes, index quotes (SPY/QQQ), volatility proxy (VIX/VIXY), and recent orders via Robinhood MCP. Prefer get_equity_historicals for watchlist symbols when evaluating trend.",
+      "source": "robinhood_mcp",
+      "required": true
+    },
+    {
+      "step": 6,
+      "action": "sync_orders",
+      "description": "Import Robinhood orders for reconciliation.",
+      "endpoint": "POST /api/admin/robinhood-orders/import",
+      "required": true
+    },
+    {
+      "step": 7,
+      "action": "fetch_market_inputs",
+      "description": "Load standardized market input bundle checklist (quotes, indices, vol proxy, orders, movers).",
+      "endpoint": "GET /api/automation/market-inputs",
+      "required": true
+    },
+    {
+      "step": 8,
+      "action": "fetch_news",
+      "description": "Skim recent news for price-moving events only; do not require headlines for technical entries.",
+      "endpoint": "GET /api/automation/news",
+      "required": false
+    },
+    {
+      "step": 9,
+      "action": "fetch_symbol_memory",
+      "description": "For each symbol you will analyze, load prior actions, cooldowns, position, notes, and signals.",
+      "endpoint": "GET /api/automation/symbols/{symbol}/memory",
+      "required": true
+    },
+    {
+      "step": 10,
+      "action": "analyze",
+      "description": "Trend-first analysis: index regime (SPY/QQQ), volatility state, movers vs avg cost, recent price action from quotes/historicals. Favor simulated_buy when technical score is strong and index trend aligns; hold in range-bound or conflicting index setups.",
+      "required": true
+    },
+    {
+      "step": 11,
+      "action": "review_trades",
+      "description": "Call review_equity_order for any would-be live trade; never place unless safety.trading_allowed.",
+      "required": false
+    },
+    {
+      "step": 12,
+      "action": "self_critique",
+      "description": "Verify decisions against trend rules, index alignment, safety, cooldowns, freshness, and symbol memory.",
+      "required": true
+    },
+    {
+      "step": 13,
+      "action": "log_run",
+      "description": "POST completed or failed run with decisions, quotes, usage, and errors.",
+      "endpoint": "POST /api/automation/runs",
+      "required": true
+    }
+  ],
+  "required_inputs": [
+    {
+      "name": "strategy",
+      "source": "api_context.strategy",
+      "description": "Active strategy mode, version, and rule caps.",
+      "required": true
+    },
+    {
+      "name": "safety",
+      "source": "api_context.safety",
+      "description": "Allowed actions, daily budget, cooldowns, and trading_allowed flag.",
+      "required": true
+    },
+    {
+      "name": "recent_decisions",
+      "source": "api_context.recent_decisions",
+      "description": "Prior agent actions for continuity and mistake avoidance.",
+      "required": true
+    },
+    {
+      "name": "manual_notes",
+      "source": "api_context.manual_notes",
+      "description": "Operator notes that should influence behavior.",
+      "required": false
+    },
+    {
+      "name": "market_signals",
+      "source": "api_context.market_signals",
+      "description": "Pending check_needed alerts from webhooks or price watcher.",
+      "required": false
+    },
+    {
+      "name": "usage_budget",
+      "source": "api_context.usage_budget",
+      "description": "Daily/monthly spend caps, per-run-type budgets, and remaining budget.",
+      "required": true
+    },
+    {
+      "name": "intervention_status",
+      "source": "api_context.intervention_status",
+      "description": "Triggers requiring operator review or hold-only mode.",
+      "required": true
+    },
+    {
+      "name": "market_input_bundle",
+      "source": "GET /api/automation/market-inputs",
+      "description": "Checklist of quotes, indices, volatility proxy, orders, movers, and freshness readiness.",
+      "required": true
+    },
+    {
+      "name": "index_quotes",
+      "source": "GET /api/automation/market-inputs.index_quotes",
+      "description": "SPY/QQQ state for regime filter.",
+      "required": true
+    },
+    {
+      "name": "volatility_quotes",
+      "source": "GET /api/automation/market-inputs.volatility_quotes",
+      "description": "VIX/VIXY or proxy for risk-on/risk-off context.",
+      "required": false
+    },
+    {
+      "name": "symbol_memory",
+      "source": "GET /api/automation/symbols/{symbol}/memory",
+      "description": "Per-symbol prior decisions, cooldown state, position, P&L, notes, and signals.",
+      "required": true
+    },
+    {
+      "name": "data_freshness",
+      "source": "api_context.freshness_checks",
+      "description": "Staleness warnings for quotes, portfolio, runs, and other inputs.",
+      "required": true
+    },
+    {
+      "name": "quotes",
+      "source": "robinhood_mcp.get_equity_quotes",
+      "description": "Latest prices for watchlist symbols.",
+      "required": true
+    },
+    {
+      "name": "price_history",
+      "source": "robinhood_mcp.get_equity_historicals",
+      "description": "Recent OHLCV bars when trend confirmation is needed.",
+      "required": false
+    },
+    {
+      "name": "portfolio",
+      "source": "robinhood_mcp.get_portfolio",
+      "description": "Live account cash and buying power (reference only in research).",
+      "required": true
+    },
+    {
+      "name": "positions",
+      "source": "robinhood_mcp.get_equity_positions",
+      "description": "Current equity holdings (reference only in research).",
+      "required": true
+    },
+    {
+      "name": "recent_orders",
+      "source": "robinhood_mcp.get_equity_orders",
+      "description": "Recent Robinhood order history for reconciliation.",
+      "required": true
+    }
+  ],
+  "scoring_rules": [
+    {
+      "id": "respect_safety",
+      "priority": "critical",
+      "rule": "Treat api_context.safety and strategy rules as hard constraints."
+    },
+    {
+      "id": "research_simulation",
+      "priority": "critical",
+      "rule": "In research/paper mode use simulated_buy/simulated_sell; never place_equity_order unless trading_allowed."
+    },
+    {
+      "id": "technical_primary",
+      "priority": "critical",
+      "rule": "Technical score is the primary driver. simulated_buy requires technical >= 0.60 unless strategy caps forbid entry."
+    },
+    {
+      "id": "index_regime_filter",
+      "priority": "high",
+      "rule": "Do not open new long simulated positions when SPY and QQQ both show clear downtrend vs prior close unless plan explicitly allows defensive holds only."
+    },
+    {
+      "id": "volatility_context",
+      "priority": "high",
+      "rule": "When volatility proxy is elevated, raise risk score and reduce position size or skip new entries."
+    },
+    {
+      "id": "use_market_input_bundle",
+      "priority": "high",
+      "rule": "Fetch market-inputs; require watchlist quotes and index state before new entries."
+    },
+    {
+      "id": "news_secondary",
+      "priority": "medium",
+      "rule": "News is secondary: cite only when it explains a price move; missing news must not block a strong technical setup."
+    },
+    {
+      "id": "use_symbol_memory",
+      "priority": "high",
+      "rule": "Before analyzing a symbol, fetch symbol memory and reference prior actions and cooldowns."
+    },
+    {
+      "id": "respect_data_freshness",
+      "priority": "high",
+      "rule": "If freshness_checks.ready_for_analysis is false, do not open new positions; hold or skip and cite stale sources."
+    },
+    {
+      "id": "symbol_coverage",
+      "priority": "high",
+      "rule": "Produce a decision row for every symbol analyzed, including hold and skip."
+    },
+    {
+      "id": "decision_scoring",
+      "priority": "high",
+      "rule": "Every decision must include scores (technical, news, risk, confidence on 0-1) and action_rationale. Technical score must reflect trend/momentum logic."
+    },
+    {
+      "id": "trend_hold_in_chop",
+      "priority": "medium",
+      "rule": "In range-bound or low-conviction tape, prefer hold over simulated_buy even if one symbol looks slightly positive."
+    },
+    {
+      "id": "respect_cooldowns",
+      "priority": "high",
+      "rule": "Do not log buy/simulated_buy on symbols listed in api_context.cooldowns."
+    },
+    {
+      "id": "simulation_discipline",
+      "priority": "high",
+      "rule": "In research mode use simulated_buy/simulated_sell with fill_price and amount_usd; never live buy/sell unless safety.trading_allowed."
+    },
+    {
+      "id": "self_critique_before_submit",
+      "priority": "high",
+      "rule": "Before POST /runs, confirm each trade intent matches trend rules and index regime; include summary in self_critique."
+    },
+    {
+      "id": "run_budget_guardrails",
+      "priority": "high",
+      "rule": "Check usage_budget before deep historical analysis; trim symbol count if budget tight."
+    }
+  ],
+  "data_sources": [
+    {
+      "name": "mta_api",
+      "type": "http",
+      "description": "MTA-Lab API for plan, context, logging, and reconciliation."
+    },
+    {
+      "name": "robinhood_mcp",
+      "type": "mcp",
+      "url": "https://agent.robinhood.com/mcp/trading",
+      "tools": [
+        "get_portfolio",
+        "get_equity_positions",
+        "get_equity_quotes",
+        "get_equity_historicals",
+        "get_equity_orders",
+        "get_indexes",
+        "get_index_quotes",
+        "review_equity_order",
+        "place_equity_order"
+      ]
+    }
+  ],
+  "stop_conditions": [
+    {
+      "condition": "intervention_required",
+      "action": "stop_or_hold_only",
+      "description": "When intervention_status.intervention_required is true, follow severity: critical → failed run; high → hold/skip only."
+    },
+    {
+      "condition": "context_or_plan_unavailable",
+      "action": "log_failed_run_and_stop",
+      "description": "Do not trade if plan or context cannot be loaded."
+    },
+    {
+      "condition": "kill_switch_active",
+      "action": "hold_only",
+      "description": "Only passive actions when kill_switch is true."
+    },
+    {
+      "condition": "required_mcp_data_missing",
+      "action": "log_failed_run_and_stop",
+      "description": "Stop if quotes or orders cannot be retrieved."
+    },
+    {
+      "condition": "market_inputs_not_ready",
+      "action": "hold_only",
+      "description": "When market-inputs.ready is false, hold/skip and explain missing checklist items."
+    },
+    {
+      "condition": "missing_index_quotes",
+      "action": "hold_only",
+      "description": "When SPY/QQQ index quotes are missing, do not open new positions; technical regime unknown."
+    },
+    {
+      "condition": "stale_required_inputs",
+      "action": "hold_only",
+      "description": "When freshness_checks.ready_for_analysis is false, only hold/skip and note stale sources."
+    },
+    {
+      "condition": "index_regime_conflict",
+      "action": "hold_only",
+      "description": "When watchlist symbol signals buy but broad index trend is negative, downgrade to hold."
+    },
+    {
+      "condition": "self_critique_failed",
+      "action": "revise_or_hold",
+      "description": "Downgrade trade intents to hold/skip if self-critique finds safety or trend gaps."
+    },
+    {
+      "condition": "symbol_memory_unavailable",
+      "action": "skip_symbol",
+      "description": "Skip symbols whose memory endpoint fails."
+    },
+    {
+      "condition": "safety_violation_detected",
+      "action": "do_not_submit_trade_actions",
+      "description": "Downgrade to hold/skip rather than violating caps or cooldowns."
+    },
+    {
+      "condition": "run_budget_exceeded",
+      "action": "hold_only",
+      "description": "When usage_budget daily/monthly exceeded, only hold/skip."
+    },
+    {
+      "condition": "live_trading_not_allowed",
+      "action": "research_only",
+      "description": "Never call place_equity_order unless mode=live, trading_enabled, and kill_switch=false."
+    }
+  ]
+}

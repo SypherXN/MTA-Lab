@@ -1,0 +1,368 @@
+{
+  "version": "v3",
+  "name": "News and Event Research Plan",
+  "change_source": "github",
+  "run_order": [
+    {
+      "step": 1,
+      "action": "fetch_plan",
+      "description": "Load the active agent plan from the API.",
+      "endpoint": "GET /api/automation/plan",
+      "required": true
+    },
+    {
+      "step": 2,
+      "action": "fetch_context",
+      "description": "Load strategy, safety budget, history, notes, signals, and intervention status.",
+      "endpoint": "GET /api/automation/context",
+      "required": true
+    },
+    {
+      "step": 3,
+      "action": "check_budget",
+      "description": "Verify daily/monthly and per-run-type budget before proceeding; trim scope if exceeded.",
+      "required": true
+    },
+    {
+      "step": 4,
+      "action": "check_intervention",
+      "description": "Verify no critical intervention triggers before proceeding.",
+      "endpoint": "GET /api/automation/intervention/check",
+      "required": true
+    },
+    {
+      "step": 5,
+      "action": "fetch_market_state",
+      "description": "Read portfolio, positions, watchlist quotes, and recent orders via Robinhood MCP.",
+      "source": "robinhood_mcp",
+      "required": true
+    },
+    {
+      "step": 6,
+      "action": "sync_orders",
+      "description": "Import Robinhood orders for reconciliation.",
+      "endpoint": "POST /api/admin/robinhood-orders/import",
+      "required": true
+    },
+    {
+      "step": 7,
+      "action": "fetch_market_inputs",
+      "description": "Load standardized market input bundle checklist (quotes, indices, vol proxy, orders, movers).",
+      "endpoint": "GET /api/automation/market-inputs",
+      "required": true
+    },
+    {
+      "step": 8,
+      "action": "fetch_news",
+      "description": "Deep news intake: recent_news from context, per-symbol GET /api/automation/news, and get_earnings_results for watchlist symbols when available. Ingest material items via POST /api/admin/news/import.",
+      "endpoint": "GET /api/automation/news",
+      "required": true
+    },
+    {
+      "step": 9,
+      "action": "fetch_symbol_memory",
+      "description": "For each symbol you will analyze, load prior actions, cooldowns, position, notes, signals, and recent_news.",
+      "endpoint": "GET /api/automation/symbols/{symbol}/memory",
+      "required": true
+    },
+    {
+      "step": 10,
+      "action": "analyze",
+      "description": "Catalyst-first analysis: require a clear news/earnings/macro reason for simulated_buy. Technical scores confirm tape is not hostile. Skip symbols with no material catalyst; hold existing positions unless news turns negative.",
+      "required": true
+    },
+    {
+      "step": 11,
+      "action": "review_trades",
+      "description": "Call review_equity_order for any would-be live trade; never place unless safety.trading_allowed.",
+      "required": false
+    },
+    {
+      "step": 12,
+      "action": "self_critique",
+      "description": "Verify each trade thesis still holds without the headline; check safety, cooldowns, freshness, and news staleness.",
+      "required": true
+    },
+    {
+      "step": 13,
+      "action": "log_run",
+      "description": "POST completed or failed run with decisions, quotes, usage, and errors.",
+      "endpoint": "POST /api/automation/runs",
+      "required": true
+    }
+  ],
+  "required_inputs": [
+    {
+      "name": "strategy",
+      "source": "api_context.strategy",
+      "description": "Active strategy mode, version, and rule caps.",
+      "required": true
+    },
+    {
+      "name": "safety",
+      "source": "api_context.safety",
+      "description": "Allowed actions, daily budget, cooldowns, and trading_allowed flag.",
+      "required": true
+    },
+    {
+      "name": "recent_decisions",
+      "source": "api_context.recent_decisions",
+      "description": "Prior agent actions for continuity and mistake avoidance.",
+      "required": true
+    },
+    {
+      "name": "manual_notes",
+      "source": "api_context.manual_notes",
+      "description": "Operator notes that should influence behavior.",
+      "required": false
+    },
+    {
+      "name": "market_signals",
+      "source": "api_context.market_signals",
+      "description": "Pending check_needed alerts from webhooks or price watcher.",
+      "required": false
+    },
+    {
+      "name": "usage_budget",
+      "source": "api_context.usage_budget",
+      "description": "Daily/monthly spend caps, per-run-type budgets, and remaining budget.",
+      "required": true
+    },
+    {
+      "name": "intervention_status",
+      "source": "api_context.intervention_status",
+      "description": "Triggers requiring operator review or hold-only mode.",
+      "required": true
+    },
+    {
+      "name": "market_input_bundle",
+      "source": "GET /api/automation/market-inputs",
+      "description": "Checklist of quotes, indices, volatility proxy, orders, movers, and freshness readiness.",
+      "required": true
+    },
+    {
+      "name": "recent_news",
+      "source": "api_context.recent_news / GET /api/automation/news",
+      "description": "Stored and per-symbol news headlines, earnings, macro events.",
+      "required": true
+    },
+    {
+      "name": "earnings_context",
+      "source": "robinhood_mcp.get_earnings_results",
+      "description": "Upcoming and recent earnings for watchlist symbols.",
+      "required": false
+    },
+    {
+      "name": "symbol_memory",
+      "source": "GET /api/automation/symbols/{symbol}/memory",
+      "description": "Per-symbol prior decisions, cooldown state, position, P&L, notes, signals, and news.",
+      "required": true
+    },
+    {
+      "name": "data_freshness",
+      "source": "api_context.freshness_checks",
+      "description": "Staleness warnings for quotes, portfolio, runs, news, and other inputs.",
+      "required": true
+    },
+    {
+      "name": "quotes",
+      "source": "robinhood_mcp.get_equity_quotes",
+      "description": "Latest prices for watchlist symbols (for fill_price and risk checks).",
+      "required": true
+    },
+    {
+      "name": "portfolio",
+      "source": "robinhood_mcp.get_portfolio",
+      "description": "Live account cash and buying power (reference only in research).",
+      "required": true
+    },
+    {
+      "name": "positions",
+      "source": "robinhood_mcp.get_equity_positions",
+      "description": "Current equity holdings (reference only in research).",
+      "required": true
+    },
+    {
+      "name": "recent_orders",
+      "source": "robinhood_mcp.get_equity_orders",
+      "description": "Recent Robinhood order history for reconciliation.",
+      "required": true
+    }
+  ],
+  "scoring_rules": [
+    {
+      "id": "respect_safety",
+      "priority": "critical",
+      "rule": "Treat api_context.safety and strategy rules as hard constraints."
+    },
+    {
+      "id": "research_simulation",
+      "priority": "critical",
+      "rule": "In research/paper mode use simulated_buy/simulated_sell; never place_equity_order unless trading_allowed."
+    },
+    {
+      "id": "news_primary",
+      "priority": "critical",
+      "rule": "News score is the primary driver. simulated_buy requires a material catalyst in news or earnings context and news score >= 0.55."
+    },
+    {
+      "id": "catalyst_required_for_entry",
+      "priority": "high",
+      "rule": "Do not log simulated_buy without naming the specific headline, earnings event, or macro item in action_rationale."
+    },
+    {
+      "id": "technical_confirmatory",
+      "priority": "high",
+      "rule": "Technical score confirms entry only; do not buy into clearly hostile tape (technical < 0.35) even with good news."
+    },
+    {
+      "id": "use_news_context",
+      "priority": "critical",
+      "rule": "Review recent_news, per-symbol news, and symbol memory news before scoring; cite sources and dates in action_rationale."
+    },
+    {
+      "id": "skip_without_catalyst",
+      "priority": "high",
+      "rule": "When no material news exists for a symbol, prefer skip over simulated_buy (hold is for existing positions)."
+    },
+    {
+      "id": "use_market_input_bundle",
+      "priority": "high",
+      "rule": "Fetch market-inputs; require watchlist quotes before new entries."
+    },
+    {
+      "id": "use_symbol_memory",
+      "priority": "high",
+      "rule": "Before analyzing a symbol, fetch symbol memory and reference prior actions and cooldowns."
+    },
+    {
+      "id": "respect_data_freshness",
+      "priority": "high",
+      "rule": "If freshness_checks.ready_for_analysis is false, do not open new positions; hold or skip and cite stale sources."
+    },
+    {
+      "id": "stale_news_blocks_entry",
+      "priority": "high",
+      "rule": "If news source is stale or missing for a symbol you would buy, skip rather than invent a thesis."
+    },
+    {
+      "id": "symbol_coverage",
+      "priority": "high",
+      "rule": "Produce a decision row for every symbol analyzed, including hold and skip."
+    },
+    {
+      "id": "decision_scoring",
+      "priority": "high",
+      "rule": "Every decision must include scores (technical, news, risk, confidence on 0-1) and action_rationale explaining the catalyst or lack thereof."
+    },
+    {
+      "id": "respect_cooldowns",
+      "priority": "high",
+      "rule": "Do not log buy/simulated_buy on symbols listed in api_context.cooldowns."
+    },
+    {
+      "id": "simulation_discipline",
+      "priority": "high",
+      "rule": "In research mode use simulated_buy/simulated_sell with fill_price and amount_usd; never live buy/sell unless safety.trading_allowed."
+    },
+    {
+      "id": "self_critique_before_submit",
+      "priority": "high",
+      "rule": "Before POST /runs, ask whether each buy would still make sense without today's headline; include summary in self_critique."
+    },
+    {
+      "id": "run_budget_guardrails",
+      "priority": "high",
+      "rule": "Check usage_budget before deep news fetches; limit per-symbol news calls if budget tight."
+    }
+  ],
+  "data_sources": [
+    {
+      "name": "mta_api",
+      "type": "http",
+      "description": "MTA-Lab API for plan, context, logging, news import, and reconciliation."
+    },
+    {
+      "name": "robinhood_mcp",
+      "type": "mcp",
+      "url": "https://agent.robinhood.com/mcp/trading",
+      "tools": [
+        "get_portfolio",
+        "get_equity_positions",
+        "get_equity_quotes",
+        "get_equity_orders",
+        "get_earnings_results",
+        "get_earnings_calendar",
+        "review_equity_order",
+        "place_equity_order"
+      ]
+    }
+  ],
+  "stop_conditions": [
+    {
+      "condition": "intervention_required",
+      "action": "stop_or_hold_only",
+      "description": "When intervention_status.intervention_required is true, follow severity: critical → failed run; high → hold/skip only."
+    },
+    {
+      "condition": "context_or_plan_unavailable",
+      "action": "log_failed_run_and_stop",
+      "description": "Do not trade if plan or context cannot be loaded."
+    },
+    {
+      "condition": "kill_switch_active",
+      "action": "hold_only",
+      "description": "Only passive actions when kill_switch is true."
+    },
+    {
+      "condition": "required_mcp_data_missing",
+      "action": "log_failed_run_and_stop",
+      "description": "Stop if quotes or orders cannot be retrieved."
+    },
+    {
+      "condition": "market_inputs_not_ready",
+      "action": "hold_only",
+      "description": "When market-inputs.ready is false, hold/skip and explain missing checklist items."
+    },
+    {
+      "condition": "no_material_catalyst",
+      "action": "skip_new_entries",
+      "description": "When watchlist has no material news or earnings context, skip new simulated_buy entries for the run."
+    },
+    {
+      "condition": "stale_required_inputs",
+      "action": "hold_only",
+      "description": "When freshness_checks.ready_for_analysis is false, only hold/skip and note stale sources."
+    },
+    {
+      "condition": "stale_news",
+      "action": "hold_only",
+      "description": "When news freshness is stale for symbols under consideration, do not open new positions."
+    },
+    {
+      "condition": "self_critique_failed",
+      "action": "revise_or_hold",
+      "description": "Downgrade trade intents to hold/skip if thesis depends on stale or weak news."
+    },
+    {
+      "condition": "symbol_memory_unavailable",
+      "action": "skip_symbol",
+      "description": "Skip symbols whose memory endpoint fails."
+    },
+    {
+      "condition": "safety_violation_detected",
+      "action": "do_not_submit_trade_actions",
+      "description": "Downgrade to hold/skip rather than violating caps or cooldowns."
+    },
+    {
+      "condition": "run_budget_exceeded",
+      "action": "hold_only",
+      "description": "When usage_budget daily/monthly exceeded, only hold/skip."
+    },
+    {
+      "condition": "live_trading_not_allowed",
+      "action": "research_only",
+      "description": "Never call place_equity_order unless mode=live, trading_enabled, and kill_switch=false."
+    }
+  ]
+}
