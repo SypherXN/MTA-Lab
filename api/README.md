@@ -103,6 +103,10 @@ python scripts/seed_sample_run.py
 | GET | `/api/automation/intervention/check` | Read* | Intervention triggers and recommended action |
 | GET | `/api/automation/market-inputs` | Read* | Standardized market input bundle checklist |
 | GET | `/api/automation/discovery/candidates` | Read* | Optional extra symbols beyond watchlist (`symbol_discovery` policy) |
+| POST | `/api/admin/symbol-proposals/import` | `X-API-Key` | Store ticker scout proposals (manual review) |
+| GET | `/api/admin/symbol-proposals` | `X-API-Key` | List proposals (`?status=pending`) |
+| POST | `/api/admin/symbol-proposals/promote` | `X-API-Key` | Promote proposals into allowed_symbols + discovery_pool |
+| POST | `/api/admin/symbol-proposals/{id}/dismiss` | `X-API-Key` | Dismiss a pending proposal |
 | GET | `/api/automation/news` | Read* | News/event summaries for agent (`symbol`, `since` filters) |
 | GET | `/api/dashboard/usage` | Read* | Cursor usage rows |
 | GET | `/api/dashboard/usage/summary` | Read* | Cost aggregates by day, model, run type |

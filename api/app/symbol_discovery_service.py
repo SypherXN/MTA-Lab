@@ -1,6 +1,6 @@
 """Optional symbol discovery — expand daily research beyond the core watchlist."""
 
-from app.schemas import StrategyOut, SymbolDiscoveryOut
+from app.schemas import StrategyOut, SymbolDiscoveryOut, SymbolProposalOut
 
 
 def _upper_set(symbols: list[str]) -> set[str]:
@@ -25,7 +25,11 @@ def validate_discovery_rules(rules) -> None:
         raise ValueError("discovery_max_per_run must be between 0 and 10")
 
 
-def build_symbol_discovery(strategy: StrategyOut) -> SymbolDiscoveryOut:
+def build_symbol_discovery(
+    strategy: StrategyOut,
+    *,
+    pending_proposals: list[SymbolProposalOut] | None = None,
+) -> SymbolDiscoveryOut:
     rules = strategy.rules
     core_watchlist = list(rules.watchlist or rules.allowed_symbols)
     allowed = _upper_set(rules.allowed_symbols)
@@ -41,13 +45,15 @@ def build_symbol_discovery(strategy: StrategyOut) -> SymbolDiscoveryOut:
         candidate_pool = [s for s in rules.allowed_symbols if s.upper() not in watchset]
 
     enabled = bool(rules.symbol_discovery_enabled and candidate_pool and rules.discovery_max_per_run > 0)
+    pending = pending_proposals or []
 
     if not rules.symbol_discovery_enabled:
         message = "Symbol discovery is disabled; analyze the core watchlist only."
     elif not candidate_pool:
         message = (
             "Discovery is enabled but candidate_pool is empty. "
-            "Add symbols to allowed_symbols (or discovery_pool) beyond the watchlist."
+            "Add symbols to allowed_symbols (or discovery_pool) beyond the watchlist, "
+            "or promote pending scout proposals."
         )
     elif rules.discovery_max_per_run <= 0:
         message = "Discovery is enabled but discovery_max_per_run is 0."
@@ -56,6 +62,8 @@ def build_symbol_discovery(strategy: StrategyOut) -> SymbolDiscoveryOut:
             f"May optionally research up to {rules.discovery_max_per_run} extra symbol(s) "
             f"from candidate_pool; trades only on allowed_symbols."
         )
+    if pending:
+        message += f" {len(pending)} pending scout proposal(s) available for review."
 
     return SymbolDiscoveryOut(
         enabled=enabled,
@@ -63,5 +71,6 @@ def build_symbol_discovery(strategy: StrategyOut) -> SymbolDiscoveryOut:
         core_watchlist=core_watchlist,
         candidate_pool=candidate_pool,
         allowed_symbols=list(rules.allowed_symbols),
+        pending_proposals=pending,
         message=message,
     )

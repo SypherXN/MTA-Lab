@@ -10,6 +10,7 @@ from app.freshness_service import evaluate_freshness, get_data_freshness
 from app.news_service import list_news_events
 from app.news_service import ingest_news_events, list_news_events
 from app.symbol_discovery_service import build_symbol_discovery
+from app.symbol_proposal_service import list_symbol_proposals
 from app.plan_service import (
     get_active_agent_plan,
     get_agent_plan_by_version,
@@ -17,6 +18,7 @@ from app.plan_service import (
     update_active_agent_plan,
 )
 from app.safety import get_active_strategy
+from app.preflight_service import get_live_preflight
 from app.lane_execution_service import get_lane_turn
 from app.live_promotion_service import get_live_promotion_status
 from app.market_input_service import get_market_input_bundle
@@ -243,7 +245,8 @@ def automation_discovery_candidates() -> SymbolDiscoveryOut:
     """Optional extra symbols the agent may research beyond the core watchlist."""
     conn = get_connection()
     try:
-        return build_symbol_discovery(get_active_strategy(conn))
+        pending = list_symbol_proposals(conn, status="pending", limit=20)
+        return build_symbol_discovery(get_active_strategy(conn), pending_proposals=pending)
     finally:
         conn.close()
 

@@ -18,6 +18,7 @@ from app.market_input_service import get_market_input_bundle
 from app.memory_service import update_symbol_memory_for_decision
 from app.news_service import get_recent_news_for_watchlist
 from app.symbol_discovery_service import build_symbol_discovery, validate_discovery_rules
+from app.symbol_proposal_service import list_symbol_proposals
 from app.lane_execution_service import get_lane_turn, release_lane_turn, verify_lane_turn_holder
 from app.lane_service import (
     ensure_primary_lane,
@@ -186,7 +187,8 @@ def get_automation_context(conn: sqlite3.Connection, lane_id: int | None = None)
     market_inputs = get_market_input_bundle(conn)
     intervention = evaluate_intervention(conn)
     lane_turn = get_lane_turn(conn, resolved_lane, acquire=True)
-    symbol_discovery = build_symbol_discovery(strategy)
+    pending = list_symbol_proposals(conn, status="pending", limit=20)
+    symbol_discovery = build_symbol_discovery(strategy, pending_proposals=pending)
 
     return AutomationContextOut(
         lane_id=resolved_lane,

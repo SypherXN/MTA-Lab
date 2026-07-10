@@ -374,6 +374,58 @@ class SymbolDiscoveryOut(BaseModel):
     core_watchlist: list[str] = Field(default_factory=list)
     candidate_pool: list[str] = Field(default_factory=list)
     allowed_symbols: list[str] = Field(default_factory=list)
+    pending_proposals: list["SymbolProposalOut"] = Field(default_factory=list)
+    message: str = ""
+
+
+class SymbolProposalIn(BaseModel):
+    symbol: str
+    thesis: str
+    source: str = "manual_scout"
+    score: float | None = Field(None, ge=0, le=1)
+    tags: list[str] = Field(default_factory=list)
+
+
+class SymbolProposalsImportRequest(BaseModel):
+    proposals: list[SymbolProposalIn]
+    scout_run_id: str | None = None
+
+
+class SymbolProposalsImportResponse(BaseModel):
+    inserted: int
+    updated: int
+    skipped: int
+    proposals: list["SymbolProposalOut"] = Field(default_factory=list)
+
+
+class SymbolProposalOut(BaseModel):
+    id: int
+    symbol: str
+    status: str
+    source: str
+    thesis: str
+    score: float | None = None
+    tags: str | None = None
+    scout_run_id: str | None = None
+    created_at: str
+    updated_at: str
+    promoted_at: str | None = None
+
+
+class SymbolProposalPromoteRequest(BaseModel):
+    proposal_ids: list[int] | None = None
+    symbols: list[str] | None = None
+    enable_discovery: bool = True
+    discovery_max_per_run: int | None = Field(None, ge=0, le=10)
+    update_lanes: bool = True
+
+
+class SymbolProposalPromoteResponse(BaseModel):
+    strategy_version: str
+    added_to_allowed: list[str] = Field(default_factory=list)
+    added_to_discovery_pool: list[str] = Field(default_factory=list)
+    lanes_updated: int = 0
+    promoted: list[SymbolProposalOut] = Field(default_factory=list)
     message: str = ""
 
 

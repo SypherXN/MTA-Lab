@@ -198,4 +198,24 @@ MIGRATIONS: dict[str, str] = {
             expires_at TEXT NOT NULL
         );
     """,
+    "014_symbol_proposals": """
+        CREATE TABLE IF NOT EXISTS symbol_proposals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending'
+                CHECK (status IN ('pending', 'promoted', 'dismissed')),
+            source TEXT NOT NULL DEFAULT 'manual_scout',
+            thesis TEXT NOT NULL,
+            score REAL,
+            tags TEXT,
+            scout_run_id TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            promoted_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_symbol_proposals_status
+            ON symbol_proposals(status, id DESC);
+        CREATE INDEX IF NOT EXISTS idx_symbol_proposals_symbol
+            ON symbol_proposals(symbol, status);
+    """,
 }

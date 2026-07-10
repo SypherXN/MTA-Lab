@@ -895,6 +895,57 @@ class Tier4Tests(unittest.TestCase):
         self.assertTrue(context["symbol_discovery"]["enabled"])
         self.assertIn("NVDA", context["symbol_discovery"]["candidate_pool"])
 
+    def test_symbol_proposals_import_and_promote(self):
+        imported = client.post(
+            "/api/admin/symbol-proposals/import",
+            json={
+                "scout_run_id": "scout-test-1",
+                "proposals": [
+                    {
+                        "symbol": "NVDA",
+                        "source": "test",
+                        "score": 0.8,
+                        "tags": ["semiconductor"],
+                        "thesis": "Strong momentum candidate for discovery.",
+                    },
+                    {
+                        "symbol": "GOOGL",
+                        "source": "test",
+                        "score": 0.7,
+                        "thesis": "Mega-cap with catalyst potential.",
+                    },
+                ],
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(imported.status_code, 200)
+        self.assertEqual(imported.json()["inserted"], 2)
+        pending = client.get(
+            "/api/admin/symbol-proposals?status=pending",
+            headers={"X-API-Key": "test-key"},
+        ).json()
+        self.assertGreaterEqual(len(pending), 2)
+        ids = [p["id"] for p in pending if p["symbol"] in {"NVDA", "GOOGL"}]
+
+        promoted = client.post(
+            "/api/admin/symbol-proposals/promote",
+            json={
+                "proposal_ids": ids,
+                "enable_discovery": True,
+                "discovery_max_per_run": 2,
+                "update_lanes": True,
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(promoted.status_code, 200, promoted.text)
+        body = promoted.json()
+        self.assertIn("NVDA", body["added_to_allowed"])
+        self.assertIn("GOOGL", body["added_to_discovery_pool"])
+
+        discovery = client.get("/api/automation/discovery/candidates").json()
+        self.assertTrue(discovery["enabled"])
+        self.assertIn("NVDA", discovery["candidate_pool"])
+
     def test_webhook_sets_check_needed_and_run_consumes(self):
         webhook = client.post(
             "/api/admin/webhooks/price-alert",

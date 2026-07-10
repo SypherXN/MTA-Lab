@@ -66,5 +66,6 @@ See [safety-gates.md](../safety-gates.md) and [multi-lane-simulation.md](./multi
 ## Related docs
 
 - [research-prompt.md](./research-prompt.md) — standing automation instructions
+- [ticker-scout-prompt.md](./ticker-scout-prompt.md) — manual market scout → symbol proposals
 - [multi-cadence.md](./multi-cadence.md) — separate schedules per run type
 - [agent-plans.md](../agent-plans.md) — editing plans in GitHub

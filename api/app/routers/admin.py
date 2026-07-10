@@ -39,6 +39,11 @@ from app.schemas import (
     LaneResetResponse,
     LaneUpdate,
     AgentPlanSyncResponse,
+    SymbolProposalOut,
+    SymbolProposalsImportRequest,
+    SymbolProposalsImportResponse,
+    SymbolProposalPromoteRequest,
+    SymbolProposalPromoteResponse,
 )
 
 from app.lane_service import (
@@ -49,6 +54,12 @@ from app.lane_service import (
     update_lane,
 )
 from app.plan_service import sync_agent_plans_from_directory
+from app.symbol_proposal_service import (
+    dismiss_symbol_proposal,
+    import_symbol_proposals,
+    list_symbol_proposals,
+    promote_symbol_proposals,
+)
 from app.services import reset_simulated_portfolio
 from app.config import settings
 
@@ -397,6 +408,86 @@ def sync_plans_from_repo() -> AgentPlanSyncResponse:
         return result
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post(
+    "/symbol-proposals/import",
+    response_model=SymbolProposalsImportResponse,
+    dependencies=[WriteKeyDep],
+)
+def admin_import_symbol_proposals(
+    payload: SymbolProposalsImportRequest,
+) -> SymbolProposalsImportResponse:
+    """Store ticker ideas from a manual scout run (does not change strategy yet)."""
+    conn = get_connection()
+    try:
+        result = import_symbol_proposals(conn, payload)
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.get("/symbol-proposals", response_model=list[SymbolProposalOut], dependencies=[WriteKeyDep])
+def admin_list_symbol_proposals(
+    status: str | None = Query("pending"),
+    limit: int = Query(50, ge=1, le=200),
+) -> list[SymbolProposalOut]:
+    conn = get_connection()
+    try:
+        return list_symbol_proposals(conn, status=status, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@router.post(
+    "/symbol-proposals/{proposal_id}/dismiss",
+    response_model=SymbolProposalOut,
+    dependencies=[WriteKeyDep],
+)
+def admin_dismiss_symbol_proposal(proposal_id: int) -> SymbolProposalOut:
+    conn = get_connection()
+    try:
+        result = dismiss_symbol_proposal(conn, proposal_id)
+        conn.commit()
+        return result
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post(
+    "/symbol-proposals/promote",
+    response_model=SymbolProposalPromoteResponse,
+    dependencies=[WriteKeyDep],
+)
+def admin_promote_symbol_proposals(
+    payload: SymbolProposalPromoteRequest,
+) -> SymbolProposalPromoteResponse:
+    """Add scouted tickers to allowed_symbols + discovery_pool and enable discovery."""
+    conn = get_connection()
+    try:
+        result = promote_symbol_proposals(conn, payload)
+        conn.commit()
+        return result
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception:
         conn.rollback()
         raise
