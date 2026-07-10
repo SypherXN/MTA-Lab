@@ -190,7 +190,7 @@ Document `lane_id` in each automation's prompt and pass it on every context fetc
 
 - **Live Money Track** — stitched equity across every lane that has been live; timeline of live stints; former live lanes keep full history when demoted to shadow
 - **Simulation Lanes** — card view with role badges (live / shadow / research); links to portfolio and plan viewer
-- **Agent Plans** — read-only per-lane plan viewer; **Edit on GitHub** when `PLANS_REPO_URL` is set in dashboard config
+- **Agent Plans** — read-only per-lane plan viewer; **Edit on GitHub** when `MTA_PLANS_REPO_URL` is set (GitHub Actions variable) or `PLANS_REPO_URL` in local `config.js`
 - **Lane Comparison** — head-to-head per-lane metrics (correct equity per lane)
 - **Paper Portfolio Comparison** — overlay equity curves for challengers
 - **Portfolio selector** — view any lane's cash/positions and snapshots

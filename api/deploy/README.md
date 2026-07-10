@@ -123,7 +123,13 @@ curl -X POST https://your-api.example.com/api/admin/alerts/reconciliation-check 
 
 ## Dashboard (GitHub Pages)
 
-Deploy `dashboard/` separately via GitHub Pages. Set `MTA_CORS_ORIGINS` to include your Pages URL. See [../../dashboard/README.md](../../dashboard/README.md).
+Deploy via **GitHub Actions** (not committed `config.js`):
+
+1. **Settings → Pages → Source:** GitHub Actions
+2. Set repository variables: `MTA_API_BASE_URL`, `MTA_PLANS_REPO_URL`, etc. — see [../../dashboard/README.md](../../dashboard/README.md)
+3. Add your Pages URL to `MTA_CORS_ORIGINS` on the API VM
+
+After `secure-env.sh`, set `MTA_API_BASE_URL` in GitHub variables and redeploy the Pages workflow.
 
 ## Management recommendations
 

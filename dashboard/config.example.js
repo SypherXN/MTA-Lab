@@ -1,4 +1,5 @@
-# Copy to config.js for local development or GitHub Pages deployment.
+# Copy to config.js for local development (gitignored).
+# Production: GitHub Actions generates config.js from repository variables — see README.md.
 window.MTA_CONFIG = {
   API_BASE_URL: "http://localhost:8000",
   // Optional when MTA_READ_API_KEY is set on the API:

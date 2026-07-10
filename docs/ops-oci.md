@@ -52,7 +52,7 @@ Or use `./deploy/install.sh` after cloning.
 
 | `MTA_READ_API_KEY` | optional read secret | Locks down dashboard GET + context |
 
-| `MTA_CORS_ORIGINS` | `https://your-user.github.io` | GitHub Pages origin |
+| `MTA_CORS_ORIGINS` | `https://mta.matthewgtran.com` | Custom Pages domain (add localhost for dev) |
 
 | `MTA_DASHBOARD_PASSWORD` | optional | Dashboard login (Bearer token) |
 
@@ -116,19 +116,22 @@ Optional cron or deploy hook to run plan sync automatically.
 
 ## Dashboard (GitHub Pages)
 
+1. **Settings → Pages → Source:** GitHub Actions (`.github/workflows/pages.yml`).
+2. **Settings → Secrets and variables → Actions** — set repository variables (see [dashboard/README.md](../dashboard/README.md)):
 
+   | Variable | Example |
+   |----------|---------|
+   | `MTA_API_BASE_URL` | `https://mta-api.example.com` |
+   | `MTA_PLANS_REPO_URL` | `https://github.com/your-user/MTA-Lab` |
+   | `MTA_PLANS_REPO_BRANCH` | `main` |
+   | `MTA_PLANS_REPO_PATH` | `plans` |
 
-1. Enable Pages on the `dashboard/` folder.
+   Optional secret `MTA_DASHBOARD_READ_KEY` — prefer dashboard password login instead.
 
-2. Set `dashboard/config.js` on the published branch:
+3. Push under `dashboard/` or run the Pages workflow manually after changing variables.
+4. Add your Pages URL to `MTA_CORS_ORIGINS` on the API.
 
-   - `API_BASE_URL` → your HTTPS API
-
-   - `PLANS_REPO_URL` → this repo (for plan edit links)
-
-3. Add Pages URL to `MTA_CORS_ORIGINS`.
-
-
+`dashboard/config.js` is generated in CI and gitignored — never commit production config.
 
 See [dashboard/README.md](../dashboard/README.md).
 

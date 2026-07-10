@@ -127,9 +127,13 @@ fi
 echo
 echo "=== Next steps ==="
 echo "1. Restart API:  cd ${API_DIR} && ./scripts/mta-ctl.sh restart"
-echo "2. Dashboard config.js (GitHub Pages):"
-echo "     API_READ_KEY: \"${NEW_READ}\""
-echo "     (or sign in with dashboard password below)"
+echo "2. GitHub → Settings → Secrets and variables → Actions → Variables:"
+echo "     MTA_API_BASE_URL = https://mta-api.matthewgtran.com"
+echo "     MTA_PLANS_REPO_URL = https://github.com/SypherXN/MTA-Lab"
+echo "     MTA_PLANS_REPO_BRANCH = main"
+echo "     MTA_PLANS_REPO_PATH = plans"
+echo "   Then: Actions → Deploy GitHub Pages Dashboard → Run workflow"
+echo "   (Do not set MTA_DASHBOARD_READ_KEY — use dashboard password login below)"
 echo
 if [[ "${NEW_DASHBOARD}" != "(unchanged — not shown)" ]]; then
   echo "3. Dashboard login password (save now — not stored elsewhere):"

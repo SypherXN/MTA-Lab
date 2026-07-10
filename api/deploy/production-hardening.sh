@@ -37,8 +37,10 @@ cat <<EOF
 Production hardening complete.
 
 Manual follow-ups:
+  • GitHub Actions variables: MTA_API_BASE_URL, MTA_PLANS_REPO_URL (Settings → Secrets and variables → Actions)
+  • Then run Actions → Deploy GitHub Pages Dashboard (or push dashboard/)
+  • Dashboard auth: use MTA_DASHBOARD_PASSWORD login — do not commit API_READ_KEY
   • certbot: sudo certbot --nginx -d YOUR_DOMAIN (if not done)
-  • dashboard/config.js: add API_READ_KEY from secure-env output (or use login password)
   • Cursor automations: update WRITE_API_KEY in each prompt
   • External monitor: see .local/uptime-external-setup.md (UptimeRobot)
   • Updates: run ./scripts/mta update manually — never cron git pull

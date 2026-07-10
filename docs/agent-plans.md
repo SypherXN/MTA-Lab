@@ -32,7 +32,7 @@ curl -X POST "$API/api/admin/plans/sync-from-repo" \
 
 3. Lanes pinned to that `plan_version` immediately use the updated content (same version string, new content hash).
 
-The dashboard **Agent Plans** section is read-only. Set `PLANS_REPO_URL` in `dashboard/config.js` for one-click **Edit on GitHub** links.
+The dashboard **Agent Plans** section is read-only. For **Edit on GitHub** links, set the `MTA_PLANS_REPO_URL` repository variable (GitHub Actions deploy) or `PLANS_REPO_URL` in local `dashboard/config.js` — see [dashboard/README.md](../dashboard/README.md).
 
 ## File format
 

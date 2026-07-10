@@ -67,7 +67,8 @@ See [`api/deploy/README.md`](api/deploy/README.md).
 ```bash
 cd dashboard
 cp config.example.js config.js
-# edit API_BASE_URL, optional PLANS_REPO_URL for GitHub edit links
+# edit API_BASE_URL for local API, or:
+# MTA_API_BASE_URL=http://localhost:8000 ./scripts/generate-config.sh
 python3 -m http.server 8080
 ```
 
@@ -136,15 +137,15 @@ Full table: [`api/README.md`](api/README.md). Interactive docs: `http://127.0.0.
 
 ## GitHub Pages
 
-1. Enable Pages on the `dashboard/` folder (or root with path).
-2. Set `dashboard/config.js`: `API_BASE_URL`, optional `PLANS_REPO_URL`.
-3. Add your Pages origin to `MTA_CORS_ORIGINS` on the API (e.g. `https://your-user.github.io`).
+1. Enable Pages with **Source: GitHub Actions** (workflow `.github/workflows/pages.yml`).
+2. Set repository variables (`MTA_API_BASE_URL`, etc.) — see [`dashboard/README.md`](dashboard/README.md).
+3. Add `https://mta.matthewgtran.com` (or your Pages URL) to `MTA_CORS_ORIGINS` on the API.
 
 ## Documentation index
 
 | Doc | Topic |
 |-----|--------|
-| [dashboard/README.md](dashboard/README.md) | Dashboard UI, local dev, config |
+| [dashboard/README.md](dashboard/README.md) | Dashboard UI, local dev, GitHub Actions variables |
 | [docs/agent-plans.md](docs/agent-plans.md) | Plan JSON, GitHub edit workflow, sync |
 | [docs/automation/research-prompt.md](docs/automation/research-prompt.md) | Cursor Automation standing instructions |
 | [docs/automation/cursor-automation-setup.md](docs/automation/cursor-automation-setup.md) | Automation creation checklist |

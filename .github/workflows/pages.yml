@@ -25,6 +25,27 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify repository variables
+        run: |
+          if [ -z "${{ vars.MTA_API_BASE_URL }}" ]; then
+            echo "::error::Missing repository variable MTA_API_BASE_URL."
+            echo "Set it under Settings → Secrets and variables → Actions → Variables tab."
+            exit 1
+          fi
+
+      - name: Generate dashboard config from repository variables
+        env:
+          MTA_API_BASE_URL: ${{ vars.MTA_API_BASE_URL }}
+          MTA_PLANS_REPO_URL: ${{ vars.MTA_PLANS_REPO_URL }}
+          MTA_PLANS_REPO_BRANCH: ${{ vars.MTA_PLANS_REPO_BRANCH }}
+          MTA_PLANS_REPO_PATH: ${{ vars.MTA_PLANS_REPO_PATH }}
+          MTA_DASHBOARD_READ_KEY: ${{ secrets.MTA_DASHBOARD_READ_KEY }}
+        run: |
+          chmod +x dashboard/scripts/generate-config.sh
+          dashboard/scripts/generate-config.sh
+          test -f dashboard/config.js
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

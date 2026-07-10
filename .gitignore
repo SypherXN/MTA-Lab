@@ -27,3 +27,6 @@ secrets/
 # Local-only (not pushed to GitHub)
 .local/
 push-result.txt
+
+# Dashboard production config (generated in CI from GitHub variables/secrets)
+dashboard/config.js

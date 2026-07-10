@@ -524,7 +524,7 @@ function renderAgentPlanBody(plan) {
       ${
         githubUrl
           ? `<p><a href="${githubUrl}" target="_blank" rel="noopener noreferrer">Edit on GitHub</a></p>`
-          : `<p class="muted">Set <code>PLANS_REPO_URL</code> in <code>config.js</code> for GitHub edit links.</p>`
+          : `<p class="muted">Plan edit links not configured (<code>MTA_PLANS_REPO_URL</code> variable or local <code>config.js</code>).</p>`
       }
     </div>
   `;
@@ -1626,7 +1626,7 @@ async function loadDashboard() {
       return;
     }
     errorBanner.hidden = false;
-    errorBanner.textContent = `Failed to load dashboard: ${error.message}. Check config.js API_BASE_URL and CORS settings.`;
+    errorBanner.textContent = `Failed to load dashboard: ${error.message}. Check MTA_API_BASE_URL (GitHub variable or local config.js) and API CORS settings.`;
   }
 }
 
