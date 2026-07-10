@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     daily_budget_usd: float = 5.0
     monthly_budget_usd: float = 50.0
     compact_payload_max_bytes: int = 4096
+    sequential_lanes: bool = False
+    lane_lock_ttl_minutes: int = 45
+    plans_repo_dir: str = ""
 
     @property
     def read_auth_enabled(self) -> bool:
@@ -39,6 +42,16 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    def resolved_plans_dir(self):
+        from pathlib import Path
+
+        if self.plans_repo_dir.strip():
+            path = Path(self.plans_repo_dir)
+            if not path.is_absolute():
+                path = Path(__file__).resolve().parent.parent / path
+            return path.resolve()
+        return (Path(__file__).resolve().parent.parent.parent / "plans").resolve()
 
 
 settings = Settings()

@@ -1,13 +1,24 @@
 [Unit]
 Description=MTA-Lab API
-After=network.target
+Documentation=file:///home/opc/MTA-Lab/api/README.md
+After=network-online.target
+Wants=network-online.target
 
 [Service]
+Type=simple
 User=opc
 WorkingDirectory=/home/opc/MTA-Lab/api
 EnvironmentFile=/home/opc/MTA-Lab/api/.env
 ExecStart=/home/opc/MTA-Lab/api/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# Restart on crash; also comes back after VM reboot when unit is enabled.
 Restart=always
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=10
+TimeoutStopSec=30
+
+# Log to journal (default): journalctl -u mta-lab-api -f
 
 [Install]
 WantedBy=multi-user.target

@@ -475,6 +475,23 @@ class PlanVersionHistoryTests(unittest.TestCase):
         detail = client.get(f"/api/automation/runs/{run_id}").json()
         self.assertEqual(detail["plan_version"], context["plan_version"])
 
+    def test_plan_by_lane_id(self):
+        lanes = client.get("/api/dashboard/lanes").json()
+        self.assertGreater(len(lanes), 0)
+        lane = lanes[0]
+        plan = client.get(f"/api/automation/plan?lane_id={lane['id']}").json()
+        self.assertEqual(plan["version"], lane["plan_version"])
+
+    def test_sync_plans_from_repo(self):
+        response = client.post(
+            "/api/admin/plans/sync-from-repo",
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertGreaterEqual(body["imported"] + body["updated"] + body["unchanged"], 1)
+        self.assertEqual(body["errors"], [])
+
 
 class DecisionScoringTests(unittest.TestCase):
     def test_decision_with_scores_persisted(self):
@@ -1791,6 +1808,72 @@ class SimulationLaneTests(unittest.TestCase):
             ]
             self.assertIn("012_lane_live_periods", versions)
             conn.execute("SELECT 1 FROM lane_live_periods LIMIT 1")
+        finally:
+            conn.close()
+
+    def test_sequential_lane_turn(self):
+        from unittest.mock import patch
+
+        strategy_version = client.get("/api/automation/context").json()["strategy"]["version"]
+        lane_b = client.post(
+            "/api/admin/lanes",
+            json={
+                "name": "seq-b",
+                "strategy_version": strategy_version,
+                "plan_version": "v1",
+                "lane_role": "shadow",
+            },
+            headers={"X-API-Key": "test-key"},
+        ).json()["id"]
+
+        with patch("app.config.settings.sequential_lanes", True):
+            probe = client.get("/api/automation/context?lane_id=1").json()["lane_turn"]
+            due_lane = 1 if probe["granted"] else probe["next_lane_id"]
+            waiting_lane = lane_b if due_lane == 1 else 1
+
+            due_ctx = client.get(f"/api/automation/context?lane_id={due_lane}").json()
+            self.assertTrue(due_ctx["lane_turn"]["granted"])
+            wait_ctx = client.get(f"/api/automation/context?lane_id={waiting_lane}").json()
+            self.assertFalse(wait_ctx["lane_turn"]["granted"])
+
+            run_due = client.post(
+                "/api/automation/runs",
+                json={
+                    "cursor_run_id": "seq-lane-due-1",
+                    "lane_id": due_lane,
+                    "self_critique": "Sequential due lane.",
+                    "decisions": [{"symbol": "SPY", "action": "hold", "reason": "Seq due."}],
+                },
+                headers={"X-API-Key": "test-key"},
+            )
+            self.assertEqual(run_due.status_code, 200)
+
+            next_ctx = client.get(f"/api/automation/context?lane_id={waiting_lane}").json()
+            self.assertTrue(next_ctx["lane_turn"]["granted"])
+
+            post_due_without_turn = client.post(
+                "/api/automation/runs",
+                json={
+                    "cursor_run_id": "seq-lane-wait-fail",
+                    "lane_id": due_lane,
+                    "self_critique": "Should fail without turn.",
+                    "decisions": [{"symbol": "QQQ", "action": "hold", "reason": "No turn."}],
+                },
+                headers={"X-API-Key": "test-key"},
+            )
+            self.assertEqual(post_due_without_turn.status_code, 400)
+
+    def test_schema_migration_013(self):
+        from app.database import get_connection
+
+        conn = get_connection()
+        try:
+            versions = [
+                row["version"]
+                for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
+            ]
+            self.assertIn("013_lane_execution_lock", versions)
+            conn.execute("SELECT 1 FROM lane_execution_lock LIMIT 1")
         finally:
             conn.close()
 

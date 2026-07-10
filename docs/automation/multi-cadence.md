@@ -14,7 +14,7 @@ Run separate Cursor Automations instead of one large all-purpose job. Each sched
 
 ## Intraday watchlist run (minimal)
 
-1. `GET /api/automation/context` — skip if no `check_needed` unless forced
+1. `GET /api/automation/context?lane_id={N}` — skip if no `check_needed` unless forced; respect `lane_turn` in sequential mode
 2. `GET /api/automation/intervention/check`
 3. Robinhood quotes for watchlist only
 4. `POST /api/automation/runs` with `run_type: signal_response`

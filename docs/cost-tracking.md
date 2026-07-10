@@ -55,4 +55,6 @@ Requires `X-API-Key`. Accepts:
 }
 ```
 
-Dashboard stats aggregate `cursor_usage.cost_usd` into `total_cursor_cost_usd`.
+Dashboard stats aggregate `cursor_usage.cost_usd` into `total_cursor_cost_usd`. The **Cost Dashboard** section shows daily spend and breakdowns by model and run type.
+
+See [dashboard/README.md](../dashboard/README.md).

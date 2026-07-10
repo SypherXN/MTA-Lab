@@ -357,6 +357,18 @@ class AutomationContextOut(BaseModel):
     market_input_bundle: MarketInputBundleOut | None = None
     intervention_status: InterventionStatusOut | None = None
     usage_budget: "UsageBudgetOut | None" = None
+    lane_turn: "LaneTurnOut | None" = None
+
+
+class LaneTurnOut(BaseModel):
+    sequential_mode: bool
+    granted: bool
+    lane_id: int
+    holder_lane_id: int | None = None
+    holder_since: str | None = None
+    next_lane_id: int | None = None
+    retry_after_seconds: int | None = None
+    message: str = ""
 
 
 class DashboardStatsOut(BaseModel):
@@ -438,6 +450,11 @@ class DashboardLoginResponse(BaseModel):
 class DashboardLogoutResponse(BaseModel):
     revoked: bool
     message: str
+
+
+class AuthStatusOut(BaseModel):
+    dashboard_login_required: bool
+    read_key_required: bool
 
 
 class QuoteImportRequest(BaseModel):
@@ -710,6 +727,21 @@ class AgentPlanUpdateResponse(BaseModel):
     unchanged: bool
     previous_version: str | None = None
     message: str
+
+
+class AgentPlanSyncItemOut(BaseModel):
+    version: str
+    name: str
+    status: str
+    message: str
+
+
+class AgentPlanSyncResponse(BaseModel):
+    imported: int
+    updated: int
+    unchanged: int
+    errors: list[str] = Field(default_factory=list)
+    items: list[AgentPlanSyncItemOut] = Field(default_factory=list)
 
 
 class SymbolMemorySummaryOut(BaseModel):

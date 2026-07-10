@@ -190,4 +190,12 @@ MIGRATIONS: dict[str, str] = {
         CREATE INDEX IF NOT EXISTS idx_lane_live_periods_open
             ON lane_live_periods(ended_at);
     """,
+    "013_lane_execution_lock": """
+        CREATE TABLE IF NOT EXISTS lane_execution_lock (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            holder_lane_id INTEGER NOT NULL REFERENCES simulation_lanes(id),
+            acquired_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        );
+    """,
 }

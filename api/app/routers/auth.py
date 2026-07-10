@@ -3,9 +3,17 @@ from fastapi import APIRouter, Header, HTTPException, status
 from app.auth_service import create_dashboard_session, purge_expired_sessions, revoke_dashboard_session
 from app.config import settings
 from app.database import get_connection
-from app.schemas import DashboardLoginRequest, DashboardLoginResponse, DashboardLogoutResponse
+from app.schemas import DashboardLoginRequest, DashboardLoginResponse, DashboardLogoutResponse, AuthStatusOut
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+@router.get("/status", response_model=AuthStatusOut)
+def auth_status() -> AuthStatusOut:
+    return AuthStatusOut(
+        dashboard_login_required=settings.dashboard_auth_enabled,
+        read_key_required=settings.read_auth_enabled,
+    )
 
 
 @router.post("/login", response_model=DashboardLoginResponse)

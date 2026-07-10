@@ -17,6 +17,7 @@ from app.freshness_service import evaluate_freshness, touch_data_source
 from app.market_input_service import get_market_input_bundle
 from app.memory_service import update_symbol_memory_for_decision
 from app.news_service import get_recent_news_for_watchlist
+from app.lane_execution_service import get_lane_turn, release_lane_turn, verify_lane_turn_holder
 from app.lane_service import (
     ensure_primary_lane,
     get_lane,
@@ -183,6 +184,7 @@ def get_automation_context(conn: sqlite3.Connection, lane_id: int | None = None)
     recent_news = get_recent_news_for_watchlist(conn, watchlist, limit=15)
     market_inputs = get_market_input_bundle(conn)
     intervention = evaluate_intervention(conn)
+    lane_turn = get_lane_turn(conn, resolved_lane, acquire=True)
 
     return AutomationContextOut(
         lane_id=resolved_lane,
@@ -208,6 +210,7 @@ def get_automation_context(conn: sqlite3.Connection, lane_id: int | None = None)
         market_input_bundle=market_inputs,
         intervention_status=intervention,
         usage_budget=get_usage_budget(conn),
+        lane_turn=lane_turn,
     )
 
 
@@ -488,6 +491,7 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
     status = _validate_run_payload(payload)
     run_type = _normalize_run_type(payload.run_type)
     resolved_lane = resolve_lane_id(conn, payload.lane_id)
+    verify_lane_turn_holder(conn, resolved_lane)
     lane = get_lane(conn, resolved_lane)
     strategy = get_strategy_for_lane(conn, resolved_lane)
     plan_version = lane.plan_version
@@ -675,6 +679,8 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
         raise ValueError("Failed to create run due to a database constraint") from exc
     except Exception:
         raise
+    finally:
+        release_lane_turn(conn, resolved_lane)
 
     return build_run_create_response(
         conn,

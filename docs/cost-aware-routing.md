@@ -31,6 +31,8 @@ Configure budgets on the API:
 - `MTA_DAILY_BUDGET_USD` (default 5.0)
 - `MTA_MONTHLY_BUDGET_USD` (default 50.0)
 
+Dashboard **Cost Dashboard** and **Cursor Usage** sections visualize spend. See [cost-tracking.md](../cost-tracking.md).
+
 Budget state is exposed as `usage_budget` in automation context and triggers `budget_exceeded` alerts via AP-11 routing.
 
 ## Related

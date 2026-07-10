@@ -23,7 +23,18 @@ Live trading is blocked unless all of the following are true:
 
 Strategy data lives in the `strategies` table. The seeded default is research mode with `trading_enabled=false`.
 
-To go live manually (after validation):
+**Dashboard:** use the **Safety Controls** card (`PATCH /api/dashboard/strategy`) — requires dashboard login or write API key; creates a new strategy version on change.
+
+**API (automation write key):**
+
+```bash
+curl -X PATCH https://your-api.example.com/api/automation/strategy \
+  -H "X-API-Key: YOUR_WRITE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"mode": "live", "trading_enabled": true, "kill_switch": false}'
+```
+
+To go live manually via SQL (after validation):
 
 ```sql
 UPDATE strategies SET is_active = 0;

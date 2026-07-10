@@ -77,13 +77,21 @@ async function fetchJson(path, options = {}) {
 }
 
 function showLoginScreen() {
-  document.getElementById("login-screen").hidden = false;
-  document.getElementById("app-shell").hidden = true;
+  const login = document.getElementById("login-screen");
+  const app = document.getElementById("app-shell");
+  login.hidden = false;
+  login.style.display = "";
+  app.hidden = true;
+  app.style.display = "none";
 }
 
 function showAppShell() {
-  document.getElementById("login-screen").hidden = true;
-  document.getElementById("app-shell").hidden = false;
+  const login = document.getElementById("login-screen");
+  const app = document.getElementById("app-shell");
+  login.hidden = true;
+  login.style.display = "none";
+  app.hidden = false;
+  app.style.display = "";
 }
 
 async function tryLogin(password) {
@@ -440,6 +448,7 @@ function renderLanesPanel(lanes, liveHistory) {
           <p class="lane-card-meta">Status ${lane.status} · Start ${formatMoney(lane.initial_cash_usd)}</p>
           <div class="lane-card-actions">
             <button type="button" class="link-btn" data-view-lane="${lane.id}">View portfolio</button>
+            <button type="button" class="link-btn" data-view-plan="${lane.id}">View plan</button>
           </div>
         </article>
       `;
@@ -453,9 +462,190 @@ function renderLanesPanel(lanes, liveHistory) {
   panel.querySelectorAll("[data-view-lane]").forEach((btn) => {
     btn.addEventListener("click", () => selectPortfolioLane(Number(btn.dataset.viewLane)));
   });
+  panel.querySelectorAll("[data-view-plan]").forEach((btn) => {
+    btn.addEventListener("click", () => openAgentPlanPanel(Number(btn.dataset.viewPlan)));
+  });
 }
 
-const LANE_CHART_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#ef4444"];
+function planGithubEditUrl(planVersion) {
+  const base = window.MTA_CONFIG?.PLANS_REPO_URL;
+  if (!base) {
+    return null;
+  }
+  const branch = window.MTA_CONFIG?.PLANS_REPO_BRANCH || "main";
+  const path = window.MTA_CONFIG?.PLANS_REPO_PATH || "plans";
+  return `${base.replace(/\/$/, "")}/edit/${branch}/${path}/${encodeURIComponent(planVersion)}.json`;
+}
+
+const agentPlanCache = new Map();
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderPlanListTable(title, rows, columns) {
+  if (!rows?.length) {
+    return `<h3>${title}</h3><p class="muted">None configured.</p>`;
+  }
+  const head = columns.map((col) => `<th>${col.label}</th>`).join("");
+  const body = rows
+    .map((row) => {
+      const cells = columns
+        .map((col) => {
+          const raw = typeof col.render === "function" ? col.render(row) : row[col.key];
+          const cls = col.wrap ? ' class="cell-wrap"' : "";
+          return `<td${cls}>${escapeHtml(raw ?? "—")}</td>`;
+        })
+        .join("");
+      return `<tr>${cells}</tr>`;
+    })
+    .join("");
+  return `
+    <h3>${title}</h3>
+    <div class="table-wrap">
+      <table class="data-table compact-table">
+        <thead><tr>${head}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderAgentPlanBody(plan) {
+  const githubUrl = planGithubEditUrl(plan.version);
+  const meta = `
+    <div class="agent-plan-meta">
+      <p><strong>${escapeHtml(plan.name)}</strong> · version ${escapeHtml(plan.version)}</p>
+      <p class="muted">Source: ${escapeHtml(plan.change_source)} · updated ${escapeHtml(plan.updated_at)}</p>
+      ${
+        githubUrl
+          ? `<p><a href="${githubUrl}" target="_blank" rel="noopener noreferrer">Edit on GitHub</a></p>`
+          : `<p class="muted">Set <code>PLANS_REPO_URL</code> in <code>config.js</code> for GitHub edit links.</p>`
+      }
+    </div>
+  `;
+
+  const runOrder = renderPlanListTable("Run order", plan.run_order, [
+    { key: "step", label: "Step" },
+    { key: "action", label: "Action" },
+    { key: "description", label: "Description", wrap: true },
+    {
+      label: "Endpoint / source",
+      wrap: true,
+      render: (row) => row.endpoint || row.source || "—",
+    },
+    { key: "required", label: "Required", render: (row) => (row.required ? "yes" : "no") },
+  ]);
+
+  const requiredInputs = renderPlanListTable("Required inputs", plan.required_inputs, [
+    { key: "name", label: "Name" },
+    { key: "source", label: "Source", wrap: true },
+    { key: "description", label: "Description", wrap: true },
+    { key: "required", label: "Required", render: (row) => (row.required ? "yes" : "no") },
+  ]);
+
+  const scoringRules = renderPlanListTable("Scoring rules", plan.scoring_rules, [
+    { key: "id", label: "ID" },
+    { key: "priority", label: "Priority" },
+    { key: "rule", label: "Rule", wrap: true },
+  ]);
+
+  const dataSources = renderPlanListTable("Data sources", plan.data_sources, [
+    { key: "name", label: "Name" },
+    { key: "type", label: "Type" },
+    { key: "description", label: "Description", wrap: true },
+    { key: "url", label: "URL", wrap: true },
+    {
+      label: "Tools",
+      wrap: true,
+      render: (row) => (row.tools?.length ? row.tools.join(", ") : "—"),
+    },
+  ]);
+
+  const stopConditions = renderPlanListTable("Stop conditions", plan.stop_conditions, [
+    { key: "condition", label: "Condition" },
+    { key: "action", label: "Action" },
+    { key: "description", label: "Description", wrap: true },
+  ]);
+
+  return `${meta}${runOrder}${requiredInputs}${scoringRules}${dataSources}${stopConditions}`;
+}
+
+async function loadAgentPlanForLane(laneId) {
+  if (agentPlanCache.has(laneId)) {
+    return agentPlanCache.get(laneId);
+  }
+  const plan = await fetchJson(`/api/automation/plan?lane_id=${laneId}`);
+  agentPlanCache.set(laneId, plan);
+  return plan;
+}
+
+async function hydrateAgentPlanPanel(laneId) {
+  const panel = document.querySelector(`#plan-lane-${laneId} .agent-plan-body`);
+  if (!panel || panel.dataset.loaded === "true") {
+    return;
+  }
+  panel.textContent = "Loading plan...";
+  try {
+    const plan = await loadAgentPlanForLane(laneId);
+    panel.innerHTML = renderAgentPlanBody(plan);
+    panel.dataset.loaded = "true";
+  } catch (error) {
+    panel.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function openAgentPlanPanel(laneId) {
+  const details = document.getElementById(`plan-lane-${laneId}`);
+  if (!details) {
+    return;
+  }
+  details.open = true;
+  hydrateAgentPlanPanel(laneId);
+  details.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function renderAgentPlansPanel(lanes) {
+  const panel = document.getElementById("agent-plans-panel");
+  if (!lanes?.length) {
+    panel.innerHTML = "<p class='muted'>No lanes configured.</p>";
+    return;
+  }
+
+  agentPlanCache.clear();
+  const roleOrder = { live: 0, shadow: 1, research: 2 };
+  const sorted = [...lanes].sort(
+    (a, b) => (roleOrder[a.lane_role] ?? 9) - (roleOrder[b.lane_role] ?? 9) || a.id - b.id
+  );
+
+  panel.innerHTML = sorted
+    .map(
+      (lane) => `
+        <details class="agent-plan-panel" id="plan-lane-${lane.id}" data-lane-id="${lane.id}">
+          <summary class="agent-plan-summary">
+            <span>#${lane.id} ${escapeHtml(lane.name)} ${laneRoleBadge(lane.lane_role)}</span>
+            <span class="muted">Plan ${escapeHtml(lane.plan_version)} · Strategy ${escapeHtml(lane.strategy_version)}</span>
+          </summary>
+          <div class="agent-plan-body muted">Expand to load plan details.</div>
+        </details>
+      `
+    )
+    .join("");
+
+  panel.querySelectorAll(".agent-plan-panel").forEach((details) => {
+    details.addEventListener("toggle", () => {
+      if (details.open) {
+        hydrateAgentPlanPanel(Number(details.dataset.laneId));
+      }
+    });
+  });
+}
+
+const LANE_CHART_COLORS = ["#3d7a55", "#5fa878", "#8ec4a8", "#2f6b4a", "#a8d5ba", "#6aab82"];
 
 function renderEquityLaneControls(lanes, selectedIds, onChange) {
   const panel = document.getElementById("equity-lane-controls");
@@ -770,19 +960,21 @@ function renderPortfolio(portfolio, laneMeta) {
     <p>Cash: ${formatMoney(portfolio.cash_usd)}</p>
     <p>Total equity: ${formatMoney(portfolio.total_equity)}</p>
     <p>Unrealized P&amp;L: ${formatMoney(portfolio.total_unrealized_pnl)}</p>
-    <table>
-      <thead>
-        <tr>
-          <th>Symbol</th>
-          <th>Qty</th>
-          <th>Avg Cost</th>
-          <th>Last Price</th>
-          <th>Value</th>
-          <th>P&amp;L</th>
-        </tr>
-      </thead>
-      <tbody>${rows || `<tr><td colspan="6">No simulated positions yet.</td></tr>`}</tbody>
-    </table>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Qty</th>
+            <th>Avg Cost</th>
+            <th>Last Price</th>
+            <th>Value</th>
+            <th>P&amp;L</th>
+          </tr>
+        </thead>
+        <tbody>${rows || `<tr><td colspan="6">No simulated positions yet.</td></tr>`}</tbody>
+      </table>
+    </div>
   `;
 
   document.querySelectorAll("[data-symbol]").forEach((row) => {
@@ -887,7 +1079,7 @@ function renderFreshness(checks) {
           <td>${row.last_updated_at || "—"}</td>
           <td>${row.age_minutes != null ? `${row.age_minutes}m` : "—"} / ${row.max_age_minutes ?? "—"}m</td>
           <td>${row.is_stale ? '<span class="warn">stale</span>' : '<span class="good">ok</span>'}</td>
-          <td>${row.detail || "—"}</td>
+          <td class="cell-wrap">${row.detail || "—"}</td>
         </tr>
       `
     )
@@ -903,10 +1095,12 @@ function renderFreshness(checks) {
       ${ready ? "Ready for analysis" : "Inputs stale — review before trading"}
     </p>
     ${warningBlock}
-    <table>
-      <thead><tr><th>Source</th><th>Last updated</th><th>Age / max</th><th>Status</th><th>Detail</th></tr></thead>
-      <tbody>${body || `<tr><td colspan="5">No freshness data yet.</td></tr>`}</tbody>
-    </table>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Source</th><th>Last updated</th><th>Age / max</th><th>Status</th><th>Detail</th></tr></thead>
+        <tbody>${body || `<tr><td colspan="5">No freshness data yet.</td></tr>`}</tbody>
+      </table>
+    </div>
   `;
 }
 
@@ -1409,6 +1603,7 @@ async function loadDashboard() {
     await loadPortfolioForLane(selectedPortfolioLaneId);
     renderLiveMoneyTrack(liveHistory, laneCompare);
     renderLanesPanel(dashboardLanes, liveHistory);
+    renderAgentPlansPanel(dashboardLanes);
     renderLaneCompare(laneCompare);
     renderEquityLaneControls(dashboardLanes, new Set(dashboardLanes.map((l) => l.id)), async () => {
       await loadEquityCurvesForLanes(dashboardLanes);
@@ -1433,6 +1628,14 @@ async function loadDashboard() {
     errorBanner.hidden = false;
     errorBanner.textContent = `Failed to load dashboard: ${error.message}. Check config.js API_BASE_URL and CORS settings.`;
   }
+}
+
+async function fetchAuthStatus() {
+  const response = await fetch(`${API_BASE}/api/auth/status`);
+  if (!response.ok) {
+    throw new Error(`auth status failed with ${response.status}`);
+  }
+  return response.json();
 }
 
 async function bootstrap() {
@@ -1487,18 +1690,35 @@ async function bootstrap() {
     }
   });
 
-  if (API_READ_KEY || getSessionToken()) {
+  if (API_READ_KEY) {
     showAppShell();
     await loadDashboard();
-  } else {
-    try {
-      await fetchJson("/api/dashboard/stats");
+    return;
+  }
+
+  try {
+    const authStatus = await fetchAuthStatus();
+    if (!authStatus.dashboard_login_required && !authStatus.read_key_required) {
+      setSessionToken(null);
       showAppShell();
       await loadDashboard();
-    } catch {
-      showLoginScreen();
+      return;
     }
+  } catch {
+    document.getElementById("login-error").hidden = false;
+    document.getElementById("login-error").textContent =
+      "Cannot reach API. Start the API on port 8000 and open http://localhost:8080.";
+    showLoginScreen();
+    return;
   }
+
+  if (getSessionToken()) {
+    showAppShell();
+    await loadDashboard();
+    return;
+  }
+
+  showLoginScreen();
 
   const hashMatch = window.location.hash.match(/^#symbol\/([A-Za-z.]+)$/);
   if (hashMatch) {

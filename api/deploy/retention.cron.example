@@ -1,0 +1,5 @@
+# Weekly retention prune — Sunday 04:00 UTC (requires MTA_WRITE_API_KEY in .env)
+0 4 * * 0 /home/opc/MTA-Lab/api/scripts/mta-ctl.sh retention >> /home/opc/MTA-Lab/api/data/retention.log 2>&1
+
+# Or install both backup + retention:
+# ./deploy/install-cron.sh

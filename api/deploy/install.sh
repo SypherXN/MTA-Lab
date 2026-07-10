@@ -29,15 +29,14 @@ if [[ ! -f .env ]]; then
 fi
 
 mkdir -p data/backups
-chmod +x scripts/*.sh scripts/*.py 2>/dev/null || true
+chmod +x scripts/*.sh scripts/*.py deploy/*.sh 2>/dev/null || true
 
 echo ""
 echo "Next steps:"
 echo "  1. Edit ${API_DIR}/.env (WRITE_API_KEY, READ_API_KEY, CORS_ORIGINS, ALERT_WEBHOOK_URL)"
-echo "  2. sudo cp deploy/mta-lab-api.service.example /etc/systemd/system/mta-lab-api.service"
-echo "  3. sudo sed -i 's|/home/opc/MTA-Lab|${INSTALL_DIR}|g' /etc/systemd/system/mta-lab-api.service"
-echo "  4. sudo systemctl daemon-reload && sudo systemctl enable --now mta-lab-api"
-echo "  5. sudo cp deploy/nginx.conf.example /etc/nginx/conf.d/mta-lab-api.conf (edit server_name)"
-echo "  6. Add cron: scripts/backup-db.sh (daily) and scripts/price_watcher.py (intraday)"
+echo "  2. ./deploy/install-service.sh     # systemd: auto-start on boot + restart on crash"
+echo "  3. ./deploy/install-cron.sh        # optional: daily backup + weekly retention"
+echo "  4. sudo cp deploy/nginx.conf.example /etc/nginx/conf.d/mta-lab-api.conf (edit server_name)"
 echo ""
+echo "Day-to-day: ./scripts/mta-ctl.sh status | update | logs -f"
 echo "Health check: curl http://127.0.0.1:8000/health"
