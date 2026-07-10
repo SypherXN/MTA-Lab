@@ -9,14 +9,14 @@ from app.dashboard_service import (
 from app.freshness_service import evaluate_freshness, get_data_freshness
 from app.news_service import list_news_events
 from app.news_service import ingest_news_events, list_news_events
-from app.preflight_service import get_live_preflight
+from app.symbol_discovery_service import build_symbol_discovery
 from app.plan_service import (
     get_active_agent_plan,
     get_agent_plan_by_version,
     list_agent_plan_versions,
     update_active_agent_plan,
 )
-from app.intervention_service import evaluate_intervention
+from app.safety import get_active_strategy
 from app.lane_execution_service import get_lane_turn
 from app.live_promotion_service import get_live_promotion_status
 from app.market_input_service import get_market_input_bundle
@@ -44,6 +44,7 @@ from app.schemas import (
     LaneTurnOut,
     MarketInputBundleOut,
     NewsEventOut,
+    SymbolDiscoveryOut,
     PortfolioSnapshotOut,
     PortfolioSnapshotSummaryOut,
 )
@@ -233,6 +234,16 @@ def automation_context(lane_id: int | None = None) -> AutomationContextOut:
     except ValueError as exc:
         conn.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@router.get("/discovery/candidates", response_model=SymbolDiscoveryOut, dependencies=[ReadKeyDep])
+def automation_discovery_candidates() -> SymbolDiscoveryOut:
+    """Optional extra symbols the agent may research beyond the core watchlist."""
+    conn = get_connection()
+    try:
+        return build_symbol_discovery(get_active_strategy(conn))
     finally:
         conn.close()
 

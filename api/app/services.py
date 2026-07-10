@@ -17,6 +17,7 @@ from app.freshness_service import evaluate_freshness, touch_data_source
 from app.market_input_service import get_market_input_bundle
 from app.memory_service import update_symbol_memory_for_decision
 from app.news_service import get_recent_news_for_watchlist
+from app.symbol_discovery_service import build_symbol_discovery, validate_discovery_rules
 from app.lane_execution_service import get_lane_turn, release_lane_turn, verify_lane_turn_holder
 from app.lane_service import (
     ensure_primary_lane,
@@ -185,6 +186,7 @@ def get_automation_context(conn: sqlite3.Connection, lane_id: int | None = None)
     market_inputs = get_market_input_bundle(conn)
     intervention = evaluate_intervention(conn)
     lane_turn = get_lane_turn(conn, resolved_lane, acquire=True)
+    symbol_discovery = build_symbol_discovery(strategy)
 
     return AutomationContextOut(
         lane_id=resolved_lane,
@@ -211,6 +213,7 @@ def get_automation_context(conn: sqlite3.Connection, lane_id: int | None = None)
         intervention_status=intervention,
         usage_budget=get_usage_budget(conn),
         lane_turn=lane_turn,
+        symbol_discovery=symbol_discovery,
     )
 
 
@@ -699,6 +702,7 @@ def update_active_strategy(conn: sqlite3.Connection, payload: StrategyUpdate) ->
     )
     kill_switch = payload.kill_switch if payload.kill_switch is not None else strategy.kill_switch
     rules = payload.rules if payload.rules is not None else strategy.rules
+    validate_discovery_rules(rules)
 
     if mode not in {"research", "paper", "live"}:
         raise ValueError("mode must be research, paper, or live")

@@ -18,6 +18,9 @@ DEFAULT_RULES = {
     "require_review_before_place": True,
     "watchlist": ["SPY", "QQQ", "AAPL", "MSFT"],
     "symbol_cooldown_hours": 24,
+    "symbol_discovery_enabled": False,
+    "discovery_max_per_run": 2,
+    "discovery_pool": [],
 }
 
 

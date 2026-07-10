@@ -12,6 +12,13 @@ class StrategyRules(BaseModel):
     require_review_before_place: bool = True
     watchlist: list[str] = Field(default_factory=list)
     symbol_cooldown_hours: float = 24
+    symbol_discovery_enabled: bool = False
+    discovery_max_per_run: int = Field(default=2, ge=0, le=10)
+    discovery_pool: list[str] = Field(
+        default_factory=list,
+        description="Optional extra symbols to consider; must be subset of allowed_symbols. "
+        "When empty, uses allowed_symbols minus watchlist.",
+    )
 
 
 class StrategyOut(BaseModel):
@@ -358,6 +365,16 @@ class AutomationContextOut(BaseModel):
     intervention_status: InterventionStatusOut | None = None
     usage_budget: "UsageBudgetOut | None" = None
     lane_turn: "LaneTurnOut | None" = None
+    symbol_discovery: "SymbolDiscoveryOut | None" = None
+
+
+class SymbolDiscoveryOut(BaseModel):
+    enabled: bool
+    max_per_run: int
+    core_watchlist: list[str] = Field(default_factory=list)
+    candidate_pool: list[str] = Field(default_factory=list)
+    allowed_symbols: list[str] = Field(default_factory=list)
+    message: str = ""
 
 
 class LaneTurnOut(BaseModel):

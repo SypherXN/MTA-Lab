@@ -862,6 +862,39 @@ class Tier4Tests(unittest.TestCase):
         self.assertIn("sync confirmed", orders_item["detail"])
         self.assertTrue(after["ready"])
 
+    def test_symbol_discovery_candidates(self):
+        strategy_resp = client.patch(
+            "/api/automation/strategy",
+            json={
+                "rules": {
+                    "allowed_symbols": ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "GOOGL"],
+                    "max_order_usd": 500,
+                    "max_daily_trades": 3,
+                    "max_daily_notional_usd": 1500,
+                    "require_review_before_place": True,
+                    "watchlist": ["SPY", "QQQ", "AAPL", "MSFT"],
+                    "symbol_cooldown_hours": 24,
+                    "symbol_discovery_enabled": True,
+                    "discovery_max_per_run": 2,
+                    "discovery_pool": ["NVDA", "GOOGL"],
+                }
+            },
+            headers={"X-API-Key": "test-key"},
+        ).json()
+        client.patch(
+            "/api/admin/lanes/1",
+            json={"strategy_version": strategy_resp["version"]},
+            headers={"X-API-Key": "test-key"},
+        )
+        discovery = client.get("/api/automation/discovery/candidates").json()
+        self.assertTrue(discovery["enabled"])
+        self.assertEqual(discovery["candidate_pool"], ["NVDA", "GOOGL"])
+        self.assertEqual(discovery["max_per_run"], 2)
+
+        context = client.get("/api/automation/context").json()
+        self.assertTrue(context["symbol_discovery"]["enabled"])
+        self.assertIn("NVDA", context["symbol_discovery"]["candidate_pool"])
+
     def test_webhook_sets_check_needed_and_run_consumes(self):
         webhook = client.post(
             "/api/admin/webhooks/price-alert",

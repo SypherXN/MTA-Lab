@@ -23,7 +23,7 @@ Agent plan content is maintained in the GitHub repo under `plans/*.json` and syn
    - If `check_needed` is true, prioritize symbols/messages in `market_signals`.
    - Review `freshness_checks`: if `ready_for_analysis` is false, do not open new positions; hold/skip and cite `warnings` in `market_summary`.
    - Review `intervention_status`: if `intervention_required` is true, follow [intervention protocol](../intervention-protocol.md) (critical → failed run; high → hold/skip only).
-   - Note `recent_news` and `market_input_bundle` preview when present.
+   - Note `recent_news`, `market_input_bundle` preview, and `symbol_discovery` when present.
 3. `GET {API_BASE}/api/automation/intervention/check` (recommended)
    - Confirm no critical triggers before gathering market data.
 4. If the plan, context, or critical intervention check fails, stop immediately. Do not trade. Log a **failed run** (see below).
@@ -38,6 +38,13 @@ Agent plan content is maintained in the GitHub repo under `plans/*.json` and syn
    - Review the checklist: watchlist quotes, index state, orders synced, positions, freshness.
    - If `ready` is false, hold/skip only and explain missing items in `market_summary`.
    - Use `movers`, `index_quotes`, and `volatility_quotes` in your market read.
+7b. **Optional symbol discovery** (when `symbol_discovery.enabled` is true in context, or `GET {API_BASE}/api/automation/discovery/candidates`)
+   - Always analyze `symbol_discovery.core_watchlist` first (same as strategy watchlist).
+   - You may **optionally** research up to `symbol_discovery.max_per_run` additional symbols from `symbol_discovery.candidate_pool`.
+   - Use Robinhood MCP (`get_equity_quotes`, `get_equity_historicals`, sector peers, earnings) or other available tools to pick the most relevant names from the pool — do not analyze the entire pool every run.
+   - Only log trades on symbols in `allowed_symbols`; discovered names outside the pool are research-only and must not be traded.
+   - Fetch symbol memory and (for v3) news for each extra symbol you analyze, same as watchlist names.
+   - If discovery is disabled, skip this step.
 8. **News and event intake** (required)
    - Read `recent_news` from context and `GET {API_BASE}/api/automation/news?symbol={SYMBOL}` per symbol when needed.
    - When you find material headlines, earnings, or macro items from external sources, ingest summaries via `POST {API_BASE}/api/admin/news/import` (write key).
@@ -93,6 +100,7 @@ Treat the API `plan`, `strategy`, and `safety` objects as authoritative.
 - If `trading_enabled` is false, never call `place_equity_order`.
 - If `kill_switch` is true, never call `place_equity_order`.
 - Respect `allowed_symbols`, `max_order_usd`, `max_daily_trades`, and `max_daily_notional_usd`.
+- When symbol discovery is enabled, extra research symbols must come from `symbol_discovery.candidate_pool` and stay within `discovery_max_per_run`.
 - Respect `cooldowns` in context — do not log buy/simulated_buy on symbols still in cooldown.
 - If `require_review_before_place` is true, include `review_output` for any live trade decision.
 - If unsure, choose `hold` or `skip` and explain why.

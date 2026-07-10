@@ -102,6 +102,7 @@ python scripts/seed_sample_run.py
 | GET | `/api/automation/freshness/check` | Read* | Staleness evaluation with warnings and `ready_for_analysis` |
 | GET | `/api/automation/intervention/check` | Read* | Intervention triggers and recommended action |
 | GET | `/api/automation/market-inputs` | Read* | Standardized market input bundle checklist |
+| GET | `/api/automation/discovery/candidates` | Read* | Optional extra symbols beyond watchlist (`symbol_discovery` policy) |
 | GET | `/api/automation/news` | Read* | News/event summaries for agent (`symbol`, `since` filters) |
 | GET | `/api/dashboard/usage` | Read* | Cursor usage rows |
 | GET | `/api/dashboard/usage/summary` | Read* | Cost aggregates by day, model, run type |
