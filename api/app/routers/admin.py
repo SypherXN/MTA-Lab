@@ -33,6 +33,19 @@ from app.schemas import (
     RobinhoodOrderImportRequest,
     RobinhoodOrderImportResponse,
     WebhookIngestResponse,
+    LaneCreate,
+    LaneOut,
+    LanePromoteResponse,
+    LaneResetResponse,
+    LaneUpdate,
+)
+
+from app.lane_service import (
+    create_lane,
+    list_lanes,
+    promote_lane_to_live,
+    reset_lane_portfolio,
+    update_lane,
 )
 from app.services import reset_simulated_portfolio
 
@@ -54,16 +67,105 @@ def cursor_usage_import(payload: CursorUsageImportRequest) -> CursorUsageImportR
 
 
 @router.post("/portfolio/reset", response_model=PortfolioResetResponse, dependencies=[WriteKeyDep])
-def portfolio_reset() -> PortfolioResetResponse:
+def portfolio_reset(lane_id: int | None = None) -> PortfolioResetResponse:
     conn = get_connection()
     try:
-        positions_cleared, portfolio = reset_simulated_portfolio(conn)
+        positions_cleared, portfolio = reset_simulated_portfolio(conn, lane_id=lane_id)
         conn.commit()
         return PortfolioResetResponse(
             cash_usd=portfolio.cash_usd,
             positions_cleared=positions_cleared,
             message="Simulated portfolio reset to configured starting cash.",
         )
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.get("/lanes", response_model=list[LaneOut], dependencies=[WriteKeyDep])
+def admin_list_lanes(include_archived: bool = False) -> list[LaneOut]:
+    conn = get_connection()
+    try:
+        return list_lanes(conn, include_archived=include_archived)
+    finally:
+        conn.close()
+
+
+@router.post("/lanes", response_model=LaneOut, dependencies=[WriteKeyDep])
+def admin_create_lane(payload: LaneCreate) -> LaneOut:
+    conn = get_connection()
+    try:
+        lane = create_lane(conn, payload)
+        conn.commit()
+        return lane
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.patch("/lanes/{lane_id}", response_model=LaneOut, dependencies=[WriteKeyDep])
+def admin_update_lane(lane_id: int, payload: LaneUpdate) -> LaneOut:
+    conn = get_connection()
+    try:
+        lane = update_lane(conn, lane_id, payload)
+        conn.commit()
+        return lane
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post("/lanes/{lane_id}/reset", response_model=LaneResetResponse, dependencies=[WriteKeyDep])
+def admin_reset_lane(lane_id: int) -> LaneResetResponse:
+    conn = get_connection()
+    try:
+        positions_cleared, cash_usd = reset_lane_portfolio(conn, lane_id)
+        conn.commit()
+        return LaneResetResponse(
+            lane_id=lane_id,
+            positions_cleared=positions_cleared,
+            cash_usd=cash_usd,
+            message=f"Lane {lane_id} portfolio reset.",
+        )
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post(
+    "/lanes/{lane_id}/promote-to-live",
+    response_model=LanePromoteResponse,
+    dependencies=[WriteKeyDep],
+)
+def admin_promote_lane(lane_id: int) -> LanePromoteResponse:
+    conn = get_connection()
+    try:
+        result = promote_lane_to_live(conn, lane_id)
+        conn.commit()
+        return result
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception:
         conn.rollback()
         raise

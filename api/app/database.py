@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import settings
@@ -49,6 +50,9 @@ def init_db() -> None:
         _migrate_schema(conn)
         _seed_if_empty(conn)
         _seed_agent_plan_if_empty(conn)
+        from app.lane_service import ensure_primary_lane
+
+        ensure_primary_lane(conn)
         conn.commit()
     finally:
         conn.close()
@@ -72,10 +76,6 @@ def _seed_if_empty(conn: sqlite3.Connection) -> None:
             0,
             __import__("json").dumps(DEFAULT_RULES),
         ),
-    )
-    conn.execute(
-        "INSERT INTO simulated_cash (id, cash_usd) VALUES (1, ?)",
-        (settings.initial_simulated_cash,),
     )
     conn.execute(
         """
@@ -158,6 +158,102 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         backfill_symbol_memory_summaries(conn)
 
     backfill_freshness_from_existing(conn)
+    _migrate_lane_tables(conn)
+    from app.live_history_service import backfill_live_periods
+
+    backfill_live_periods(conn)
+
+
+def _migrate_lane_tables(conn: sqlite3.Connection) -> None:
+    cash_cols = _table_columns(conn, "simulated_cash")
+    if "lane_id" not in cash_cols:
+        legacy = conn.execute(
+            "SELECT cash_usd, updated_at FROM simulated_cash WHERE id = 1"
+        ).fetchone()
+        cash_usd = float(legacy["cash_usd"]) if legacy else settings.initial_simulated_cash
+        updated_at = legacy["updated_at"] if legacy else datetime.now(timezone.utc).isoformat()
+        conn.execute("ALTER TABLE simulated_cash RENAME TO simulated_cash_legacy")
+        conn.execute(
+            """
+            CREATE TABLE simulated_cash (
+                lane_id INTEGER PRIMARY KEY,
+                cash_usd REAL NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO simulated_cash (lane_id, cash_usd, updated_at) VALUES (1, ?, ?)",
+            (cash_usd, updated_at),
+        )
+        conn.execute("DROP TABLE simulated_cash_legacy")
+
+    pos_cols = _table_columns(conn, "simulated_positions")
+    if "lane_id" not in pos_cols:
+        conn.executescript(
+            """
+            CREATE TABLE simulated_positions_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                lane_id INTEGER NOT NULL DEFAULT 1,
+                symbol TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                avg_cost REAL NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(lane_id, symbol)
+            );
+            INSERT INTO simulated_positions_new (id, lane_id, symbol, quantity, avg_cost, updated_at)
+            SELECT id, 1, symbol, quantity, avg_cost, updated_at FROM simulated_positions;
+            DROP TABLE simulated_positions;
+            ALTER TABLE simulated_positions_new RENAME TO simulated_positions;
+            """
+        )
+
+    if "lane_id" not in _table_columns(conn, "automation_runs"):
+        conn.execute(
+            "ALTER TABLE automation_runs ADD COLUMN lane_id INTEGER REFERENCES simulation_lanes(id)"
+        )
+        conn.execute("UPDATE automation_runs SET lane_id = 1 WHERE lane_id IS NULL")
+
+    if "lane_id" not in _table_columns(conn, "portfolio_snapshots"):
+        conn.execute(
+            "ALTER TABLE portfolio_snapshots ADD COLUMN lane_id INTEGER NOT NULL DEFAULT 1"
+        )
+        conn.execute("UPDATE portfolio_snapshots SET lane_id = 1 WHERE lane_id IS NULL")
+
+    mem_cols = _table_columns(conn, "symbol_memory_summaries")
+    if "lane_id" not in mem_cols:
+        conn.executescript(
+            """
+            CREATE TABLE symbol_memory_summaries_new (
+                lane_id INTEGER NOT NULL DEFAULT 1,
+                symbol TEXT NOT NULL,
+                last_action TEXT,
+                last_buy_at TEXT,
+                last_sell_at TEXT,
+                last_run_id INTEGER REFERENCES automation_runs(id) ON DELETE SET NULL,
+                trade_count INTEGER NOT NULL DEFAULT 0,
+                win_count INTEGER NOT NULL DEFAULT 0,
+                loss_count INTEGER NOT NULL DEFAULT 0,
+                realized_pnl_usd REAL NOT NULL DEFAULT 0,
+                unrealized_pnl_usd REAL,
+                risk_notes_json TEXT,
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (lane_id, symbol)
+            );
+            INSERT INTO symbol_memory_summaries_new (
+                lane_id, symbol, last_action, last_buy_at, last_sell_at, last_run_id,
+                trade_count, win_count, loss_count, realized_pnl_usd, unrealized_pnl_usd,
+                risk_notes_json, updated_at
+            )
+            SELECT
+                1, symbol, last_action, last_buy_at, last_sell_at, last_run_id,
+                trade_count, win_count, loss_count, realized_pnl_usd, unrealized_pnl_usd,
+                risk_notes_json, updated_at
+            FROM symbol_memory_summaries;
+            DROP TABLE symbol_memory_summaries;
+            ALTER TABLE symbol_memory_summaries_new RENAME TO symbol_memory_summaries;
+            """
+        )
 
 
 def _seed_agent_plan_if_empty(conn: sqlite3.Connection) -> None:

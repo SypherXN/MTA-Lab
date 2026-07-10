@@ -244,6 +244,303 @@ function renderAlerts(alerts) {
   });
 }
 
+function laneRoleBadge(role) {
+  if (role === "live") return `<span class="lane-badge live">live</span>`;
+  if (role === "shadow") return `<span class="lane-badge shadow">shadow</span>`;
+  return `<span class="lane-badge research">research</span>`;
+}
+
+function laneRoleLabel(role) {
+  if (role === "live") return "Live (real money)";
+  if (role === "shadow") return "Shadow (paper challenger)";
+  return "Research (paper only)";
+}
+
+function formatPeriodRange(startedAt, endedAt, isCurrent) {
+  const start = startedAt?.slice(0, 10) || "—";
+  if (isCurrent) return `${start} → now`;
+  const end = endedAt?.slice(0, 10) || "—";
+  return `${start} → ${end}`;
+}
+
+function renderLiveMoneyTrack(history, laneCompare) {
+  const panel = document.getElementById("live-money-track");
+  if (!history) {
+    panel.innerHTML = "<p class='muted'>Live history unavailable.</p>";
+    return;
+  }
+
+  const compareByLane = new Map((laneCompare?.lanes || []).map((row) => [row.lane_id, row]));
+  const currentLine = history.current_live_lane_name
+    ? `<p><strong>Current live lane:</strong> #${history.current_live_lane_id} ${history.current_live_lane_name} ${laneRoleBadge("live")}</p>`
+    : `<p class='muted'><strong>No live lane.</strong> All lanes are paper-only until you promote one via <code>POST /api/admin/lanes/{id}/promote-to-live</code>.</p>`;
+
+  const stats = `
+    <div class="live-track-stats">
+      <p><strong>Combined equity Δ:</strong> ${formatMoney(history.combined_equity_change_usd)}</p>
+      <p><strong>Real orders (all live stints):</strong> ${history.total_real_orders}</p>
+      <p><strong>Live stints:</strong> ${history.periods.length}</p>
+    </div>
+  `;
+
+  const periodRows =
+    history.periods.length > 0
+      ? history.periods
+          .map((period) => {
+            const compare = compareByLane.get(period.lane_id);
+            return `
+              <div class="live-period-row ${period.is_current ? "current" : ""}">
+                <span>#${period.lane_id} <strong>${period.lane_name}</strong></span>
+                ${period.is_current ? laneRoleBadge("live") : `<span class="lane-badge shadow">was live</span>`}
+                <span class="muted">${formatPeriodRange(period.started_at, period.ended_at, period.is_current)}</span>
+                <span>${period.strategy_version} + ${period.plan_version}</span>
+                <span>Equity Δ ${formatMoney(period.equity_change_usd)}</span>
+                <span>${period.run_count} runs · ${period.real_order_count} real orders</span>
+                <button type="button" class="link-btn" data-view-lane="${period.lane_id}">View lane portfolio</button>
+              </div>
+            `;
+          })
+          .join("")
+      : `<p class="muted">No lane has been live yet. Promote a shadow or research lane when preflight passes.</p>`;
+
+  panel.innerHTML = `
+    ${currentLine}
+    ${stats}
+    <h3>Live stint timeline</h3>
+    <div class="live-period-timeline">${periodRows}</div>
+    <div id="live-track-chart"></div>
+  `;
+
+  renderCombinedLiveEquityCurve(history.combined_snapshots);
+  panel.querySelectorAll("[data-view-lane]").forEach((btn) => {
+    btn.addEventListener("click", () => selectPortfolioLane(Number(btn.dataset.viewLane)));
+  });
+}
+
+function renderCombinedLiveEquityCurve(snapshots) {
+  const panel = document.getElementById("live-track-chart");
+  if (!panel) return;
+  if (!snapshots?.length) {
+    panel.innerHTML =
+      "<p class='muted'>Combined live equity curve will appear after live-lane runs record snapshots.</p>";
+    return;
+  }
+
+  const width = 640;
+  const height = 220;
+  const padX = 48;
+  const padY = 28;
+  const plotWidth = width - padX * 2;
+  const plotHeight = height - padY * 2;
+  const equities = snapshots.map((row) => row.total_equity_usd);
+  const minEquity = Math.min(...equities);
+  const maxEquity = Math.max(...equities);
+  const range = maxEquity - minEquity || 1;
+
+  const points = snapshots
+    .map((row, index) => {
+      const x = padX + (index / Math.max(snapshots.length - 1, 1)) * plotWidth;
+      const y = padY + (1 - (row.total_equity_usd - minEquity) / range) * plotHeight;
+      return { x, y, row };
+    });
+
+  const polyline = points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+  const handoffs = points
+    .filter((p) => p.row.is_handoff)
+    .map((p) => `<line x1="${p.x.toFixed(1)}" y1="${padY}" x2="${p.x.toFixed(1)}" y2="${height - padY}" class="chart-handoff" />`)
+    .join("");
+
+  const legend = [...new Set(snapshots.map((s) => `#${s.lane_id} ${s.lane_name}`))]
+    .map((label) => `<span>${label}</span>`)
+    .join(" · ");
+
+  panel.innerHTML = `
+    <div class="equity-curve-meta">${legend}</div>
+    <svg class="equity-curve-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Combined live money equity curve">
+      <line x1="${padX}" y1="${height - padY}" x2="${width - padX}" y2="${height - padY}" class="chart-axis" />
+      <line x1="${padX}" y1="${padY}" x2="${padX}" y2="${height - padY}" class="chart-axis" />
+      <text x="${padX - 6}" y="${padY + 4}" class="chart-label">${formatMoney(maxEquity)}</text>
+      <text x="${padX - 6}" y="${height - padY + 4}" class="chart-label">${formatMoney(minEquity)}</text>
+      ${handoffs}
+      <polyline points="${polyline}" class="chart-line live-track" />
+    </svg>
+    <p class="muted">Dashed vertical lines mark handoffs when a new lane became live. Each lane keeps its own full history after demotion.</p>
+  `;
+}
+
+function renderLaneCompare(compare) {
+  const panel = document.getElementById("lane-compare-panel");
+  if (!compare?.lanes?.length) {
+    panel.innerHTML = "<p class='muted'>No simulation lanes yet.</p>";
+    return;
+  }
+  const roleOrder = { live: 0, shadow: 1, research: 2 };
+  const sorted = [...compare.lanes].sort(
+    (a, b) => (roleOrder[a.lane_role] ?? 9) - (roleOrder[b.lane_role] ?? 9) || a.lane_id - b.lane_id
+  );
+  const rows = sorted
+    .map(
+      (lane) => `
+        <tr class="${lane.lane_role === "live" ? "live-row" : ""}">
+          <td>#${lane.lane_id} ${lane.name} ${laneRoleBadge(lane.lane_role)}</td>
+          <td>${laneRoleLabel(lane.lane_role)}</td>
+          <td>${lane.strategy_version}</td>
+          <td>${lane.plan_version}</td>
+          <td>${lane.run_count}</td>
+          <td>${lane.simulated_trades}</td>
+          <td>${lane.avg_confidence != null ? Number(lane.avg_confidence).toFixed(2) : "—"}</td>
+          <td>${formatMoney(lane.equity_change_usd)}</td>
+          <td>${formatMoney(lane.total_cost_usd)}</td>
+          <td><button type="button" class="link-btn" data-view-lane="${lane.lane_id}">View</button></td>
+        </tr>
+      `
+    )
+    .join("");
+  panel.innerHTML = `
+    <table>
+      <thead><tr><th>Lane</th><th>Type</th><th>Strategy</th><th>Plan</th><th>Runs</th><th>Sim trades</th><th>Avg conf</th><th>Equity Δ</th><th>Cost</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+  panel.querySelectorAll("[data-view-lane]").forEach((btn) => {
+    btn.addEventListener("click", () => selectPortfolioLane(Number(btn.dataset.viewLane)));
+  });
+}
+
+function renderLanesPanel(lanes, liveHistory) {
+  const panel = document.getElementById("lanes-panel");
+  if (!lanes?.length) {
+    panel.innerHTML = "<p class='muted'>No lanes configured.</p>";
+    return;
+  }
+
+  const periodsByLane = new Map();
+  for (const period of liveHistory?.periods || []) {
+    if (!periodsByLane.has(period.lane_id)) {
+      periodsByLane.set(period.lane_id, []);
+    }
+    periodsByLane.get(period.lane_id).push(period);
+  }
+
+  const cards = lanes
+    .map((lane) => {
+      const periods = periodsByLane.get(lane.id) || [];
+      const wasLive = periods.length > 0 && lane.lane_role !== "live";
+      const liveHistoryLine =
+        lane.lane_role === "live"
+          ? `<p class="lane-card-meta">Currently deploying real money.</p>`
+          : wasLive
+            ? `<p class="lane-card-meta">Previously live (${periods.length} stint${periods.length === 1 ? "" : "s"}) — full history preserved.</p>`
+            : `<p class="lane-card-meta">${laneRoleLabel(lane.lane_role)}</p>`;
+      return `
+        <article class="lane-card ${lane.lane_role}">
+          <h3>#${lane.id} ${lane.name} ${laneRoleBadge(lane.lane_role)}</h3>
+          ${liveHistoryLine}
+          <p class="lane-card-meta">Strategy ${lane.strategy_version} · Plan ${lane.plan_version}</p>
+          <p class="lane-card-meta">Status ${lane.status} · Start ${formatMoney(lane.initial_cash_usd)}</p>
+          <div class="lane-card-actions">
+            <button type="button" class="link-btn" data-view-lane="${lane.id}">View portfolio</button>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+
+  panel.innerHTML = `
+    <div class="lane-cards">${cards}</div>
+    <p class="muted">Automations pass <code>lane_id</code> on context, plan, memory, and runs. Create or promote lanes via admin API (write key).</p>
+  `;
+  panel.querySelectorAll("[data-view-lane]").forEach((btn) => {
+    btn.addEventListener("click", () => selectPortfolioLane(Number(btn.dataset.viewLane)));
+  });
+}
+
+const LANE_CHART_COLORS = ["#3b82f6", "#22c55e", "#f59e0b", "#a855f7", "#ef4444"];
+
+function renderEquityLaneControls(lanes, selectedIds, onChange) {
+  const panel = document.getElementById("equity-lane-controls");
+  if (!lanes?.length) {
+    panel.innerHTML = "";
+    return;
+  }
+  panel.innerHTML = lanes
+    .map(
+      (lane, index) => `
+        <label class="lane-chip">
+          <input type="checkbox" data-lane-id="${lane.id}" ${selectedIds.has(lane.id) ? "checked" : ""} />
+          <span style="color:${LANE_CHART_COLORS[index % LANE_CHART_COLORS.length]}">#${lane.id} ${lane.name}</span>
+        </label>
+      `
+    )
+    .join("");
+  panel.querySelectorAll("input[data-lane-id]").forEach((input) => {
+    input.addEventListener("change", () => onChange());
+  });
+}
+
+function renderMultiEquityCurve(laneSeries) {
+  const panel = document.getElementById("equity-curve-panel");
+  const seriesList = laneSeries.filter((s) => s.snapshots?.length);
+  if (!seriesList.length) {
+    panel.innerHTML =
+      "<p>No portfolio snapshots yet. Snapshots are recorded per lane after each completed run.</p>";
+    return;
+  }
+
+  const width = 640;
+  const height = 220;
+  const padX = 48;
+  const padY = 28;
+  const plotWidth = width - padX * 2;
+  const plotHeight = height - padY * 2;
+
+  let minEquity = Infinity;
+  let maxEquity = -Infinity;
+  seriesList.forEach((series) => {
+    series.snapshots.forEach((row) => {
+      minEquity = Math.min(minEquity, row.total_equity_usd);
+      maxEquity = Math.max(maxEquity, row.total_equity_usd);
+    });
+  });
+  const range = maxEquity - minEquity || 1;
+
+  const polylines = seriesList
+    .map((series, seriesIndex) => {
+      const sorted = [...series.snapshots].sort((a, b) =>
+        a.snapshot_at.localeCompare(b.snapshot_at)
+      );
+      const points = sorted
+        .map((row, index) => {
+          const x = padX + (index / Math.max(sorted.length - 1, 1)) * plotWidth;
+          const y = padY + (1 - (row.total_equity_usd - minEquity) / range) * plotHeight;
+          return `${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(" ");
+      const color = LANE_CHART_COLORS[seriesIndex % LANE_CHART_COLORS.length];
+      return `<polyline points="${points}" class="chart-line" stroke="${color}" />`;
+    })
+    .join("");
+
+  const legend = seriesList
+    .map(
+      (series, index) =>
+        `<span style="color:${LANE_CHART_COLORS[index % LANE_CHART_COLORS.length]}">#${series.laneId} ${series.name}</span>`
+    )
+    .join(" · ");
+
+  panel.innerHTML = `
+    <div class="equity-curve-meta">${legend}</div>
+    <svg class="equity-curve-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Multi-lane equity curves">
+      <line x1="${padX}" y1="${height - padY}" x2="${width - padX}" y2="${height - padY}" class="chart-axis" />
+      <line x1="${padX}" y1="${padY}" x2="${padX}" y2="${height - padY}" class="chart-axis" />
+      <text x="${padX - 6}" y="${padY + 4}" class="chart-label">${formatMoney(maxEquity)}</text>
+      <text x="${padX - 6}" y="${height - padY + 4}" class="chart-label">${formatMoney(minEquity)}</text>
+      ${polylines}
+    </svg>
+    <p class="muted">Overlay per-lane snapshot equity (select lanes above).</p>
+  `;
+}
+
 function renderStrategyCompare(compare) {
   const panel = document.getElementById("strategy-compare-panel");
   if (!compare?.strategy_versions?.length) {
@@ -283,6 +580,7 @@ function renderMobileStatus(status) {
   bar.innerHTML = `
     <span class="${badgeClass(status.strategy_mode)}">${status.strategy_mode}</span>
     <span>Equity ${formatMoney(status.total_equity_usd)}</span>
+    ${status.live_lane_name ? `<span>Live lane: ${status.live_lane_name}</span>` : ""}
     <span>Alerts ${status.open_alerts}</span>
     <span>Kill ${status.kill_switch ? "ON" : "off"}</span>
     <span class="${status.budget_ok ? "good" : "bad"}">Budget ${status.budget_ok ? "ok" : "exceeded"}</span>
@@ -447,7 +745,7 @@ function renderCostDashboard(summary) {
   `;
 }
 
-function renderPortfolio(portfolio) {
+function renderPortfolio(portfolio, laneMeta) {
   const rows = portfolio.positions
     .map(
       (position) => `
@@ -463,7 +761,12 @@ function renderPortfolio(portfolio) {
     )
     .join("");
 
+  const laneLabel = laneMeta
+    ? `<p class="muted">Showing lane #${laneMeta.id} <strong>${laneMeta.name}</strong> ${laneRoleBadge(laneMeta.lane_role)} · ${laneRoleLabel(laneMeta.lane_role)}</p>`
+    : "";
+
   document.getElementById("portfolio-panel").innerHTML = `
+    ${laneLabel}
     <p>Cash: ${formatMoney(portfolio.cash_usd)}</p>
     <p>Total equity: ${formatMoney(portfolio.total_equity)}</p>
     <p>Unrealized P&amp;L: ${formatMoney(portfolio.total_unrealized_pnl)}</p>
@@ -487,7 +790,11 @@ function renderPortfolio(portfolio) {
   });
 }
 
-function renderSnapshotSummary(summary) {
+function renderSnapshotSummary(summary, laneMeta) {
+  const label = document.getElementById("snapshot-lane-label");
+  if (label) {
+    label.textContent = laneMeta ? `#${laneMeta.id} ${laneMeta.name}` : "";
+  }
   if (!summary) {
     document.getElementById("snapshot-summary-panel").innerHTML =
       "<p>No portfolio snapshots yet. Snapshots are recorded after each completed run.</p>";
@@ -689,6 +996,7 @@ function renderRuns(runs) {
         <tr class="clickable-row" data-run-id="${run.id}" title="View run #${run.id}">
           <td>${run.run_at}</td>
           <td>${run.automation_name || "—"}</td>
+          <td>${run.lane_name ? `${laneRoleBadge(run.lane_role || "research")} ${run.lane_name}` : "—"}</td>
           <td>${run.run_type || "—"}</td>
           <td><span class="${badgeClass(run.mode)}">${run.mode || "—"}</span></td>
           <td>${run.status}</td>
@@ -701,9 +1009,9 @@ function renderRuns(runs) {
   document.getElementById("runs-table-wrap").innerHTML = `
     <table>
       <thead>
-        <tr><th>Run At</th><th>Automation</th><th>Run Type</th><th>Mode</th><th>Status</th><th>Summary</th></tr>
+        <tr><th>Run At</th><th>Automation</th><th>Lane</th><th>Run Type</th><th>Mode</th><th>Status</th><th>Summary</th></tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="6">No runs logged yet.</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="7">No runs logged yet.</td></tr>`}</tbody>
     </table>
   `;
   document.querySelectorAll("#runs-table-wrap [data-run-id]").forEach((row) => {
@@ -767,6 +1075,13 @@ function renderRunDetail(run) {
       <p>${run.market_summary || "No market summary."}</p>
       ${run.self_critique ? `<p><strong>Self-critique:</strong> ${run.self_critique}</p>` : ""}
       <p>Strategy: ${run.strategy_version || "—"} · Plan: ${run.plan_version || "—"} · Mode: ${run.mode || "—"}</p>
+      ${
+        run.lane_name
+          ? `<p>Lane: #${run.lane_id} ${run.lane_name} ${laneRoleBadge(run.lane_role || "research")}</p>`
+          : run.lane_id
+            ? `<p>Lane: #${run.lane_id}</p>`
+            : ""
+      }
       ${
         run.budget_exceeded
           ? `<p class="warn"><strong>Budget exceeded:</strong> ${formatMoney(run.actual_cost_usd)} vs expected ${formatMoney(run.expected_budget_usd)}</p>`
@@ -978,6 +1293,69 @@ function renderUsage(usageRows) {
   `;
 }
 
+let dashboardLanes = [];
+let selectedPortfolioLaneId = null;
+let liveTradingHistory = null;
+
+function populatePortfolioLaneSelect(lanes, preferredLaneId) {
+  const select = document.getElementById("portfolio-lane-select");
+  if (!select) return preferredLaneId;
+  const liveLane = lanes.find((lane) => lane.lane_role === "live" && lane.status === "active");
+  const defaultId = preferredLaneId || liveLane?.id || lanes[0]?.id || 1;
+  select.innerHTML = lanes
+    .map(
+      (lane) =>
+        `<option value="${lane.id}" ${lane.id === defaultId ? "selected" : ""}>#${lane.id} ${lane.name} (${lane.lane_role})</option>`
+    )
+    .join("");
+  select.onchange = () => selectPortfolioLane(Number(select.value));
+  return defaultId;
+}
+
+function laneMetaForId(laneId) {
+  return dashboardLanes.find((lane) => lane.id === laneId) || null;
+}
+
+async function selectPortfolioLane(laneId) {
+  selectedPortfolioLaneId = laneId;
+  const select = document.getElementById("portfolio-lane-select");
+  if (select && Number(select.value) !== laneId) {
+    select.value = String(laneId);
+  }
+  await loadPortfolioForLane(laneId);
+  document.getElementById("portfolio-panel")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function loadPortfolioForLane(laneId) {
+  const [portfolio, snapshotSummary] = await Promise.all([
+    fetchJson(`/api/dashboard/portfolio?lane_id=${laneId}`),
+    fetchJson(`/api/dashboard/portfolio/snapshots/summary?lane_id=${laneId}`).catch(() => null),
+  ]);
+  const laneMeta = laneMetaForId(laneId);
+  renderPortfolio(portfolio, laneMeta);
+  renderSnapshotSummary(snapshotSummary, laneMeta);
+}
+
+async function loadEquityCurvesForLanes(lanes) {
+  const selected = new Set(
+    [...document.querySelectorAll("#equity-lane-controls input[data-lane-id]:checked")].map((el) =>
+      Number(el.dataset.laneId)
+    )
+  );
+  const activeIds =
+    selected.size > 0 ? [...selected] : lanes.filter((l) => l.status === "active").map((l) => l.id);
+  const series = await Promise.all(
+    activeIds.map(async (laneId) => {
+      const lane = lanes.find((l) => l.id === laneId);
+      const snapshots = await fetchJson(`/api/dashboard/portfolio/snapshots?lane_id=${laneId}&limit=200`).catch(
+        () => []
+      );
+      return { laneId, name: lane?.name || `lane-${laneId}`, snapshots };
+    })
+  );
+  renderMultiEquityCurve(series);
+}
+
 async function loadDashboard() {
   const errorBanner = document.getElementById("error-banner");
   errorBanner.hidden = true;
@@ -988,43 +1366,54 @@ async function loadDashboard() {
       context,
       runs,
       decisions,
-      portfolio,
       usage,
       usageSummary,
       orders,
       reconciliation,
       timeline,
       freshnessChecks,
-      snapshotSummary,
-      snapshots,
       alerts,
       compare,
+      laneCompare,
+      lanes,
+      liveHistory,
       mobileStatus,
     ] = await Promise.all([
       fetchJson("/api/dashboard/stats"),
       fetchJson("/api/automation/context"),
       fetchJson("/api/dashboard/runs?limit=25"),
       fetchJson("/api/dashboard/decisions?limit=50"),
-      fetchJson("/api/dashboard/portfolio"),
       fetchJson("/api/dashboard/usage?limit=25"),
       fetchJson("/api/dashboard/usage/summary").catch(() => null),
       fetchJson("/api/dashboard/orders?limit=25"),
       fetchJson("/api/dashboard/reconciliation"),
       fetchJson("/api/dashboard/timeline?limit=80"),
       fetchJson("/api/dashboard/freshness/check"),
-      fetchJson("/api/dashboard/portfolio/snapshots/summary").catch(() => null),
-      fetchJson("/api/dashboard/portfolio/snapshots?limit=200").catch(() => []),
       fetchJson("/api/dashboard/alerts?limit=50").catch(() => []),
       fetchJson("/api/dashboard/strategy/compare").catch(() => null),
+      fetchJson("/api/dashboard/lanes/compare").catch(() => null),
+      fetchJson("/api/dashboard/lanes").catch(() => []),
+      fetchJson("/api/dashboard/lanes/live-history").catch(() => null),
       fetchJson("/api/dashboard/status/mobile").catch(() => null),
     ]);
 
     renderStats(stats);
     renderStrategy(context);
     renderSafetyControls(context);
-    renderPortfolio(portfolio);
-    renderSnapshotSummary(snapshotSummary);
-    renderEquityCurve(snapshots);
+    dashboardLanes = lanes || [];
+    liveTradingHistory = liveHistory;
+    selectedPortfolioLaneId = populatePortfolioLaneSelect(
+      dashboardLanes,
+      liveHistory?.current_live_lane_id || context.lane_id
+    );
+    await loadPortfolioForLane(selectedPortfolioLaneId);
+    renderLiveMoneyTrack(liveHistory, laneCompare);
+    renderLanesPanel(dashboardLanes, liveHistory);
+    renderLaneCompare(laneCompare);
+    renderEquityLaneControls(dashboardLanes, new Set(dashboardLanes.map((l) => l.id)), async () => {
+      await loadEquityCurvesForLanes(dashboardLanes);
+    });
+    await loadEquityCurvesForLanes(dashboardLanes);
     renderCostDashboard(usageSummary);
     renderFreshness(freshnessChecks);
     renderReconciliation(reconciliation);

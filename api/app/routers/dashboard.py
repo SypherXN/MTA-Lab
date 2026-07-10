@@ -2,6 +2,9 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
 from app.backtest_service import replay_decisions
+from app.lane_compare_service import compare_lanes
+from app.lane_service import list_lanes
+from app.live_history_service import get_live_trading_history
 from app.compare_service import compare_strategy_versions
 from app.budget_service import get_usage_budget
 from app.alert_state_service import list_alerts, update_alert_status
@@ -43,6 +46,9 @@ from app.schemas import (
     ReconciliationSummaryOut,
     RobinhoodOrderOut,
     RunSummaryOut,
+    LaneCompareOut,
+    LaneOut,
+    LiveTradingHistoryOut,
     StrategyCompareOut,
     StrategyOut,
     StrategyPerformanceOut,
@@ -99,11 +105,12 @@ def dashboard_portfolio_snapshots(
     since: str | None = None,
     until: str | None = None,
     run_id: int | None = None,
+    lane_id: int | None = None,
 ) -> list[PortfolioSnapshotOut]:
     conn = get_connection()
     try:
         rows = get_dashboard_portfolio_snapshots(
-            conn, limit=limit, since=since, until=until, run_id=run_id
+            conn, limit=limit, since=since, until=until, run_id=run_id, lane_id=lane_id
         )
         return list(reversed(rows))
     finally:
@@ -111,10 +118,10 @@ def dashboard_portfolio_snapshots(
 
 
 @router.get("/portfolio/snapshots/summary", response_model=PortfolioSnapshotSummaryOut)
-def dashboard_portfolio_snapshot_summary() -> PortfolioSnapshotSummaryOut:
+def dashboard_portfolio_snapshot_summary(lane_id: int | None = None) -> PortfolioSnapshotSummaryOut:
     conn = get_connection()
     try:
-        summary = get_dashboard_portfolio_snapshot_summary(conn)
+        summary = get_dashboard_portfolio_snapshot_summary(conn, lane_id=lane_id)
         if summary is None:
             raise HTTPException(status_code=404, detail="No portfolio snapshots recorded yet")
         return summary
@@ -162,10 +169,10 @@ def dashboard_timeline(limit: int = Query(default=100, ge=1, le=300)) -> list[Ti
 
 
 @router.get("/portfolio")
-def dashboard_portfolio():
+def dashboard_portfolio(lane_id: int | None = None):
     conn = get_connection()
     try:
-        return get_simulated_portfolio(conn)
+        return get_simulated_portfolio(conn, lane_id, require_active=False)
     finally:
         conn.close()
 
@@ -315,6 +322,41 @@ def dashboard_strategy_compare(since: str | None = None) -> StrategyCompareOut:
     conn = get_connection()
     try:
         return compare_strategy_versions(conn, since=since)
+    finally:
+        conn.close()
+
+
+@router.get("/lanes", response_model=list[LaneOut])
+def dashboard_lanes() -> list[LaneOut]:
+    conn = get_connection()
+    try:
+        return list_lanes(conn)
+    finally:
+        conn.close()
+
+
+@router.get("/lanes/compare", response_model=LaneCompareOut)
+def dashboard_lanes_compare(
+    lane_ids: str | None = None,
+    since: str | None = None,
+) -> LaneCompareOut:
+    conn = get_connection()
+    try:
+        parsed_ids = None
+        if lane_ids:
+            parsed_ids = [int(part.strip()) for part in lane_ids.split(",") if part.strip()]
+        return compare_lanes(conn, lane_ids=parsed_ids, since=since)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@router.get("/lanes/live-history", response_model=LiveTradingHistoryOut)
+def dashboard_live_trading_history() -> LiveTradingHistoryOut:
+    conn = get_connection()
+    try:
+        return get_live_trading_history(conn)
     finally:
         conn.close()
 

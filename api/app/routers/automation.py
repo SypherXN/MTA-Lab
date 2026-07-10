@@ -58,11 +58,18 @@ router = APIRouter(prefix="/api/automation", tags=["automation"])
 
 
 @router.get("/plan", response_model=AgentPlanOut, dependencies=[ReadKeyDep])
-def automation_plan() -> AgentPlanOut:
+def automation_plan(lane_id: int | None = None) -> AgentPlanOut:
     conn = get_connection()
     try:
-        return get_active_agent_plan(conn)
+        if lane_id is None:
+            return get_active_agent_plan(conn)
+        from app.lane_service import get_lane
+
+        lane = get_lane(conn, lane_id)
+        return get_agent_plan_by_version(conn, lane.plan_version)
     except RuntimeError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     finally:
         conn.close()
@@ -106,43 +113,38 @@ def automation_plan_update(payload: AgentPlanUpdate) -> AgentPlanUpdateResponse:
 
 
 @router.get("/symbols/{symbol}/memory", response_model=SymbolMemoryOut, dependencies=[ReadKeyDep])
-def automation_symbol_memory(symbol: str) -> SymbolMemoryOut:
+def automation_symbol_memory(symbol: str, lane_id: int | None = None) -> SymbolMemoryOut:
     conn = get_connection()
     try:
-        return get_symbol_memory(conn, symbol)
+        return get_symbol_memory(conn, symbol, lane_id=lane_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         conn.close()
 
 
-@router.get(
-    "/portfolio/snapshots",
-    response_model=list[PortfolioSnapshotOut],
-    dependencies=[ReadKeyDep],
-)
+@router.get("/portfolio/snapshots", response_model=list[PortfolioSnapshotOut], dependencies=[ReadKeyDep])
 def automation_portfolio_snapshots(
     limit: int = Query(default=100, ge=1, le=500),
     since: str | None = None,
     until: str | None = None,
     run_id: int | None = None,
+    lane_id: int | None = None,
 ) -> list[PortfolioSnapshotOut]:
     conn = get_connection()
     try:
         return get_dashboard_portfolio_snapshots(
-            conn, limit=limit, since=since, until=until, run_id=run_id
+            conn, limit=limit, since=since, until=until, run_id=run_id, lane_id=lane_id
         )
     finally:
         conn.close()
 
 
-@router.get(
-    "/portfolio/snapshots/summary",
-    response_model=PortfolioSnapshotSummaryOut,
-    dependencies=[ReadKeyDep],
-)
-def automation_portfolio_snapshot_summary() -> PortfolioSnapshotSummaryOut:
+@router.get("/portfolio/snapshots/summary", response_model=PortfolioSnapshotSummaryOut, dependencies=[ReadKeyDep])
+def automation_portfolio_snapshot_summary(lane_id: int | None = None) -> PortfolioSnapshotSummaryOut:
     conn = get_connection()
     try:
-        summary = get_dashboard_portfolio_snapshot_summary(conn)
+        summary = get_dashboard_portfolio_snapshot_summary(conn, lane_id=lane_id)
         if summary is None:
             raise HTTPException(status_code=404, detail="No portfolio snapshots recorded yet")
         return summary
@@ -220,10 +222,12 @@ def automation_news(
 
 
 @router.get("/context", response_model=AutomationContextOut, dependencies=[ReadKeyDep])
-def automation_context() -> AutomationContextOut:
+def automation_context(lane_id: int | None = None) -> AutomationContextOut:
     conn = get_connection()
     try:
-        return get_automation_context(conn)
+        return get_automation_context(conn, lane_id=lane_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         conn.close()
 

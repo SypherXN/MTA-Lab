@@ -88,6 +88,9 @@ class RunSummaryOut(BaseModel):
     buying_power: float | None
     cursor_run_id: str | None
     created_at: str
+    lane_id: int | None = None
+    lane_name: str | None = None
+    lane_role: str | None = None
     budget_exceeded: bool = False
     expected_budget_usd: float | None = None
     actual_cost_usd: float | None = None
@@ -138,6 +141,7 @@ class RunCreate(BaseModel):
     run_at: datetime | None = None
     automation_name: str | None = "mta-research"
     run_type: str | None = None
+    lane_id: int | None = None
     market_summary: str | None = None
     self_critique: str | None = None
     status: str = "completed"
@@ -154,6 +158,8 @@ class RunCreate(BaseModel):
 
 class RunCreateResponse(BaseModel):
     run_id: int
+    lane_id: int
+    lane_name: str | None = None
     mode: str
     trading_allowed: bool
     safety_violations: list[str]
@@ -330,6 +336,11 @@ class UsageSummaryOut(BaseModel):
 
 
 class AutomationContextOut(BaseModel):
+    lane_id: int
+    lane_name: str
+    lane_role: str
+    plan_version: str
+    agent_plan: "AgentPlanOut | None" = None
     strategy: StrategyOut
     manual_notes: list[ManualNoteOut]
     recent_runs: list[RunSummaryOut]
@@ -718,6 +729,7 @@ class SymbolMemorySummaryOut(BaseModel):
 
 class SymbolMemoryOut(BaseModel):
     symbol: str
+    lane_id: int | None = None
     summary: SymbolMemorySummaryOut | None = None
     cooldown: SymbolCooldownOut | None = None
     position: SimulatedPositionOut | None = None
@@ -730,6 +742,7 @@ class SymbolMemoryOut(BaseModel):
 
 class PortfolioSnapshotOut(BaseModel):
     id: int
+    lane_id: int | None = None
     snapshot_at: str
     run_id: int | None
     cash_usd: float
@@ -907,3 +920,103 @@ class MobileStatusOut(BaseModel):
     last_run_status: str | None
     preflight_ready: bool
     budget_ok: bool
+    live_lane_id: int | None = None
+    live_lane_name: str | None = None
+
+
+class LaneOut(BaseModel):
+    id: int
+    name: str
+    strategy_version: str
+    plan_version: str
+    lane_role: str
+    status: str
+    initial_cash_usd: float
+    created_at: str
+    updated_at: str
+
+
+class LaneCreate(BaseModel):
+    name: str
+    strategy_version: str
+    plan_version: str
+    lane_role: str | None = "research"
+    initial_cash_usd: float | None = None
+
+
+class LaneUpdate(BaseModel):
+    name: str | None = None
+    status: str | None = None
+    strategy_version: str | None = None
+    plan_version: str | None = None
+
+
+class LanePromoteResponse(BaseModel):
+    lane: LaneOut
+    message: str
+    previous_live_lane_id: int | None = None
+
+
+class LaneCompareRowOut(BaseModel):
+    lane_id: int
+    name: str
+    strategy_version: str
+    plan_version: str
+    lane_role: str
+    status: str
+    run_count: int
+    completed_runs: int
+    decision_count: int
+    simulated_trades: int
+    avg_confidence: float | None = None
+    equity_change_usd: float | None = None
+    total_cost_usd: float
+
+
+class LaneCompareOut(BaseModel):
+    since: str | None = None
+    lanes: list[LaneCompareRowOut] = Field(default_factory=list)
+
+
+class LaneResetResponse(BaseModel):
+    lane_id: int
+    positions_cleared: int
+    cash_usd: float
+    message: str
+
+
+class LaneLivePeriodOut(BaseModel):
+    id: int
+    lane_id: int
+    lane_name: str
+    strategy_version: str
+    plan_version: str
+    started_at: str
+    ended_at: str | None = None
+    is_current: bool = False
+    snapshot_count: int = 0
+    run_count: int = 0
+    real_order_count: int = 0
+    equity_change_usd: float | None = None
+
+
+class LiveTradingSnapshotOut(BaseModel):
+    snapshot_at: str
+    total_equity_usd: float
+    lane_id: int
+    lane_name: str
+    period_id: int
+    is_handoff: bool = False
+
+
+class LiveTradingHistoryOut(BaseModel):
+    current_live_lane_id: int | None = None
+    current_live_lane_name: str | None = None
+    periods: list[LaneLivePeriodOut] = Field(default_factory=list)
+    combined_snapshots: list[LiveTradingSnapshotOut] = Field(default_factory=list)
+    combined_equity_change_usd: float | None = None
+    total_real_orders: int = 0
+    description: str = (
+        "Stitched equity from each lane while it was live. "
+        "Past live lanes keep their full history when demoted to shadow."
+    )

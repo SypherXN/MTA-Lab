@@ -158,4 +158,36 @@ MIGRATIONS: dict[str, str] = {
         -- Applied via ALTER in Python when columns missing; placeholder for tracking.
         SELECT 1;
     """,
+    "011_simulation_lanes": """
+        CREATE TABLE IF NOT EXISTS simulation_lanes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            strategy_version TEXT NOT NULL,
+            plan_version TEXT NOT NULL,
+            lane_role TEXT NOT NULL DEFAULT 'research'
+                CHECK (lane_role IN ('research', 'shadow', 'live')),
+            status TEXT NOT NULL DEFAULT 'active'
+                CHECK (status IN ('active', 'paused', 'archived')),
+            initial_cash_usd REAL NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_simulation_lanes_status
+            ON simulation_lanes(status, lane_role);
+        -- lane_id columns and portfolio table rebuild applied in Python.
+        SELECT 1;
+    """,
+    "012_lane_live_periods": """
+        CREATE TABLE IF NOT EXISTS lane_live_periods (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            lane_id INTEGER NOT NULL REFERENCES simulation_lanes(id),
+            started_at TEXT NOT NULL,
+            ended_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_lane_live_periods_lane
+            ON lane_live_periods(lane_id, started_at);
+        CREATE INDEX IF NOT EXISTS idx_lane_live_periods_open
+            ON lane_live_periods(ended_at);
+    """,
 }

@@ -76,7 +76,7 @@ python scripts/seed_sample_run.py
 | GET | `/api/automation/plans` | Read* | Plan version history (summaries) |
 | GET | `/api/automation/plans/{version}` | Read* | Specific plan version snapshot |
 | PATCH | `/api/automation/plan` | `X-API-Key` | Update plan (dedupes identical content; keeps last 20 versions) |
-| GET | `/api/automation/context` | Read* | Strategy + history + safety + cooldowns + `check_needed` + `valid_run_types` |
+| GET | `/api/automation/context` | Read* | Strategy + history + safety + cooldowns + `check_needed` + `valid_run_types` + lane context (`?lane_id=`) |
 | GET | `/api/automation/symbols/{symbol}/memory` | Read* | Symbol memory (decisions, cooldown, position, notes, signals) |
 | GET | `/api/automation/preflight` | Read* | Live-trading readiness checklist |
 | GET | `/api/automation/live-promotion/status` | Read* | Latest live promotion request + preflight state |
@@ -113,6 +113,9 @@ python scripts/seed_sample_run.py
 | PATCH | `/api/dashboard/alerts/{id}` | Session/write* | Acknowledge or resolve an alert |
 | GET | `/api/dashboard/strategy/performance` | Read* | Performance by strategy version, action, confidence |
 | GET | `/api/dashboard/strategy/compare` | Read* | Compare strategy/plan versions (runs, trades, cost, equity) |
+| GET | `/api/dashboard/lanes` | Read* | List simulation lanes |
+| GET | `/api/dashboard/lanes/compare` | Read* | Head-to-head lane metrics (`lane_ids=1,2`) |
+| GET | `/api/dashboard/lanes/live-history` | Read* | Combined real-money history across live stints |
 | GET | `/api/dashboard/rollups` | Read* | Daily rollup history |
 | GET | `/api/dashboard/backtest/replay` | Read* | Replay decisions with alternate rules |
 | GET | `/api/dashboard/usage/budget` | Read* | Daily/monthly Cursor budget status |
@@ -130,6 +133,11 @@ python scripts/seed_sample_run.py
 | POST | `/api/admin/retention/run` | `X-API-Key` | Prune old runs, snapshots, usage, resolved alerts |
 | POST | `/api/admin/maintenance/run` | `X-API-Key` | `ANALYZE` / `VACUUM` + record DB size snapshot |
 | POST | `/api/admin/rollups/run` | `X-API-Key` | Upsert daily rollups for recent days |
+| GET | `/api/admin/lanes` | `X-API-Key` | List simulation lanes |
+| POST | `/api/admin/lanes` | `X-API-Key` | Create simulation lane |
+| PATCH | `/api/admin/lanes/{id}` | `X-API-Key` | Update lane name/status/strategy/plan binding |
+| POST | `/api/admin/lanes/{id}/reset` | `X-API-Key` | Reset lane portfolio |
+| POST | `/api/admin/lanes/{id}/promote-to-live` | `X-API-Key` | Promote shadow/research lane to live |
 | POST | `/api/admin/payloads/store` | `X-API-Key` | Store compressed/truncated raw MCP/API payload |
 
 ### Ops scripts

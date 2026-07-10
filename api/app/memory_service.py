@@ -3,10 +3,11 @@ from datetime import datetime, timezone
 
 import sqlite3
 
-from app.decision_utils import DECISION_SELECT_COLUMNS, decision_summary_from_row
+from app.decision_utils import DECISION_SELECT_ALIASED, DECISION_SELECT_COLUMNS, decision_summary_from_row
 from app.news_service import list_news_events
 from app.integration_service import _get_quote_map, mark_position_with_quotes
-from app.safety import BUY_ACTIONS, get_active_symbol_cooldowns, get_active_strategy
+from app.lane_service import get_strategy_for_lane, resolve_lane_id
+from app.safety import BUY_ACTIONS, get_active_symbol_cooldowns
 
 SELL_ACTIONS = {"sell", "place_sell", "simulated_sell", "paper_sell"}
 from app.schemas import (
@@ -25,10 +26,14 @@ def _iso_now() -> str:
 def _position_for_symbol(
     conn: sqlite3.Connection,
     symbol: str,
+    lane_id: int,
 ) -> SimulatedPositionOut | None:
     row = conn.execute(
-        "SELECT symbol, quantity, avg_cost FROM simulated_positions WHERE symbol = ?",
-        (symbol.upper(),),
+        """
+        SELECT symbol, quantity, avg_cost FROM simulated_positions
+        WHERE lane_id = ? AND symbol = ?
+        """,
+        (lane_id, symbol.upper()),
     ).fetchone()
     if row is None:
         return None
@@ -50,10 +55,17 @@ def _position_for_symbol(
     )
 
 
-def get_symbol_memory(conn: sqlite3.Connection, symbol: str) -> SymbolMemoryOut:
+def get_symbol_memory(
+    conn: sqlite3.Connection,
+    symbol: str,
+    lane_id: int | None = None,
+) -> SymbolMemoryOut:
     symbol = symbol.upper()
-    strategy = get_active_strategy(conn)
-    cooldowns = get_active_symbol_cooldowns(conn, strategy.rules.symbol_cooldown_hours)
+    resolved_lane = resolve_lane_id(conn, lane_id)
+    strategy = get_strategy_for_lane(conn, resolved_lane)
+    cooldowns = get_active_symbol_cooldowns(
+        conn, strategy.rules.symbol_cooldown_hours, lane_id=resolved_lane
+    )
     cooldown = cooldowns.get(symbol)
 
     summary_row = conn.execute(
@@ -62,9 +74,9 @@ def get_symbol_memory(conn: sqlite3.Connection, symbol: str) -> SymbolMemoryOut:
                trade_count, win_count, loss_count, realized_pnl_usd,
                unrealized_pnl_usd, risk_notes_json, updated_at
         FROM symbol_memory_summaries
-        WHERE symbol = ?
+        WHERE lane_id = ? AND symbol = ?
         """,
-        (symbol,),
+        (resolved_lane, symbol),
     ).fetchone()
 
     summary = None
@@ -93,13 +105,14 @@ def get_symbol_memory(conn: sqlite3.Connection, symbol: str) -> SymbolMemoryOut:
         decision_summary_from_row(row)
         for row in conn.execute(
             f"""
-            SELECT {DECISION_SELECT_COLUMNS}
-            FROM decisions
-            WHERE upper(symbol) = ?
-            ORDER BY id DESC
+            SELECT {DECISION_SELECT_ALIASED}
+            FROM decisions d
+            JOIN automation_runs r ON r.id = d.run_id
+            WHERE r.lane_id = ? AND upper(d.symbol) = ?
+            ORDER BY d.id DESC
             LIMIT 20
             """,
-            (symbol,),
+            (resolved_lane, symbol),
         )
     ]
 
@@ -138,17 +151,19 @@ def get_symbol_memory(conn: sqlite3.Connection, symbol: str) -> SymbolMemoryOut:
         )
     ]
 
-    position = _position_for_symbol(conn, symbol)
-    cash_row = conn.execute("SELECT cash_usd FROM simulated_cash WHERE id = 1").fetchone()
+    position = _position_for_symbol(conn, symbol, resolved_lane)
+    cash_row = conn.execute(
+        "SELECT cash_usd FROM simulated_cash WHERE lane_id = ?",
+        (resolved_lane,),
+    ).fetchone()
     cash = float(cash_row["cash_usd"]) if cash_row else 0.0
-    position_value = 0.0
-    if position:
-        position_value = position.market_value or 0.0
+    position_value = position.market_value if position else 0.0
     portfolio_total_equity = cash + position_value
     recent_news = list_news_events(conn, symbol=symbol, limit=10)
 
     return SymbolMemoryOut(
         symbol=symbol,
+        lane_id=resolved_lane,
         summary=summary,
         cooldown=cooldown,
         position=position,
@@ -163,6 +178,7 @@ def get_symbol_memory(conn: sqlite3.Connection, symbol: str) -> SymbolMemoryOut:
 def update_symbol_memory_for_decision(
     conn: sqlite3.Connection,
     *,
+    lane_id: int,
     run_id: int,
     symbol: str,
     action: str,
@@ -173,27 +189,30 @@ def update_symbol_memory_for_decision(
     now = created_at or _iso_now()
 
     row = conn.execute(
-        "SELECT symbol FROM symbol_memory_summaries WHERE symbol = ?",
-        (symbol,),
+        """
+        SELECT symbol FROM symbol_memory_summaries
+        WHERE lane_id = ? AND symbol = ?
+        """,
+        (lane_id, symbol),
     ).fetchone()
 
     if row is None:
         conn.execute(
             """
             INSERT INTO symbol_memory_summaries (
-                symbol, last_action, last_run_id, updated_at
-            ) VALUES (?, ?, ?, ?)
+                lane_id, symbol, last_action, last_run_id, updated_at
+            ) VALUES (?, ?, ?, ?, ?)
             """,
-            (symbol, action, run_id, now),
+            (lane_id, symbol, action, run_id, now),
         )
     else:
         conn.execute(
             """
             UPDATE symbol_memory_summaries
             SET last_action = ?, last_run_id = ?, updated_at = ?
-            WHERE symbol = ?
+            WHERE lane_id = ? AND symbol = ?
             """,
-            (action, run_id, now, symbol),
+            (action, run_id, now, lane_id, symbol),
         )
 
     if action in BUY_ACTIONS:
@@ -201,35 +220,42 @@ def update_symbol_memory_for_decision(
             """
             UPDATE symbol_memory_summaries
             SET last_buy_at = ?, trade_count = trade_count + 1
-            WHERE symbol = ?
+            WHERE lane_id = ? AND symbol = ?
             """,
-            (now, symbol),
+            (now, lane_id, symbol),
         )
     elif action in SELL_ACTIONS:
         conn.execute(
             """
             UPDATE symbol_memory_summaries
             SET last_sell_at = ?, trade_count = trade_count + 1
-            WHERE symbol = ?
+            WHERE lane_id = ? AND symbol = ?
             """,
-            (now, symbol),
+            (now, lane_id, symbol),
         )
 
-    position = _position_for_symbol(conn, symbol)
+    position = _position_for_symbol(conn, symbol, lane_id)
     if position and position.unrealized_pnl is not None:
         conn.execute(
             """
             UPDATE symbol_memory_summaries
             SET unrealized_pnl_usd = ?
-            WHERE symbol = ?
+            WHERE lane_id = ? AND symbol = ?
             """,
-            (position.unrealized_pnl, symbol),
+            (position.unrealized_pnl, lane_id, symbol),
         )
 
 
-def backfill_symbol_memory_summaries(conn: sqlite3.Connection) -> int:
+def backfill_symbol_memory_summaries(conn: sqlite3.Connection, lane_id: int = 1) -> int:
     symbols = conn.execute(
-        "SELECT DISTINCT upper(symbol) AS symbol FROM decisions ORDER BY symbol"
+        """
+        SELECT DISTINCT upper(d.symbol) AS symbol
+        FROM decisions d
+        JOIN automation_runs r ON r.id = d.run_id
+        WHERE r.lane_id = ?
+        ORDER BY symbol
+        """,
+        (lane_id,),
     ).fetchall()
     count = 0
     for row in symbols:
@@ -238,16 +264,18 @@ def backfill_symbol_memory_summaries(conn: sqlite3.Connection) -> int:
             """
             SELECT d.run_id, d.action, d.created_at
             FROM decisions d
-            WHERE upper(d.symbol) = ?
+            JOIN automation_runs r ON r.id = d.run_id
+            WHERE r.lane_id = ? AND upper(d.symbol) = ?
             ORDER BY d.id DESC
             LIMIT 1
             """,
-            (symbol,),
+            (lane_id, symbol),
         ).fetchone()
         if latest is None:
             continue
         update_symbol_memory_for_decision(
             conn,
+            lane_id=lane_id,
             run_id=latest["run_id"],
             symbol=symbol,
             action=latest["action"],

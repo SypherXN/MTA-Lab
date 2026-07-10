@@ -18,6 +18,7 @@ ALERT_ROUTES: dict[str, AlertRoute] = {
     "budget_exceeded": AlertRoute(severity="medium", webhook=True),
     "simulated_drawdown": AlertRoute(severity="high", webhook=True),
     "live_promotion": AlertRoute(severity="high", webhook=False),
+    "live_lane_promoted": AlertRoute(severity="high", webhook=True),
     "intervention_required": AlertRoute(severity="high", webhook=True),
 }
 
