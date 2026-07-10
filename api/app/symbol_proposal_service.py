@@ -11,6 +11,7 @@ from app.schemas import (
     LaneUpdate,
     StrategyRules,
     StrategyUpdate,
+    SymbolProposalAutoPromoteRequest,
     SymbolProposalOut,
     SymbolProposalPromoteRequest,
     SymbolProposalPromoteResponse,
@@ -18,6 +19,7 @@ from app.schemas import (
     SymbolProposalsImportResponse,
 )
 from app.symbol_discovery_service import validate_discovery_rules
+from app.config import settings
 
 
 VALID_STATUSES = frozenset({"pending", "promoted", "dismissed"})
@@ -321,5 +323,43 @@ def promote_symbol_proposals(
         message=(
             f"Promoted {len(symbols)} symbol(s) into strategy {updated_strategy.version}. "
             f"Discovery enabled={updated_strategy.rules.symbol_discovery_enabled}."
+        ),
+    )
+
+
+def auto_promote_pending_proposals(
+    conn: sqlite3.Connection,
+    payload: SymbolProposalAutoPromoteRequest | None = None,
+) -> SymbolProposalPromoteResponse:
+    """Promote top pending scout proposals above a score threshold into discovery."""
+    request = payload or SymbolProposalAutoPromoteRequest(
+        min_score=settings.scout_auto_promote_min_score,
+        max_symbols=settings.scout_auto_promote_max_symbols,
+    )
+    pending = list_symbol_proposals(conn, status="pending", limit=200)
+    eligible = [
+        p
+        for p in pending
+        if p.score is not None and p.score >= request.min_score
+    ]
+    eligible.sort(key=lambda p: (p.score or 0, p.id), reverse=True)
+    chosen = eligible[: request.max_symbols]
+    if not chosen:
+        strategy = get_active_strategy(conn)
+        return SymbolProposalPromoteResponse(
+            strategy_version=strategy.version,
+            message=(
+                f"No pending proposals with score >= {request.min_score}. "
+                "Nothing promoted."
+            ),
+        )
+
+    return promote_symbol_proposals(
+        conn,
+        SymbolProposalPromoteRequest(
+            proposal_ids=[p.id for p in chosen],
+            enable_discovery=request.enable_discovery,
+            discovery_max_per_run=request.discovery_max_per_run,
+            update_lanes=request.update_lanes,
         ),
     )

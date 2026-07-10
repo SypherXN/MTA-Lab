@@ -946,6 +946,43 @@ class Tier4Tests(unittest.TestCase):
         self.assertTrue(discovery["enabled"])
         self.assertIn("NVDA", discovery["candidate_pool"])
 
+    def test_symbol_proposals_auto_promote(self):
+        client.post(
+            "/api/admin/symbol-proposals/import",
+            json={
+                "scout_run_id": "scout-auto-1",
+                "proposals": [
+                    {
+                        "symbol": "AMD",
+                        "source": "test",
+                        "score": 0.9,
+                        "thesis": "High score auto-promote candidate.",
+                    },
+                    {
+                        "symbol": "INTC",
+                        "source": "test",
+                        "score": 0.4,
+                        "thesis": "Below threshold — should stay pending.",
+                    },
+                ],
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        result = client.post(
+            "/api/admin/symbol-proposals/auto-promote",
+            json={"min_score": 0.65, "max_symbols": 5, "enable_discovery": True},
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(result.status_code, 200, result.text)
+        body = result.json()
+        self.assertIn("AMD", body["added_to_allowed"])
+        self.assertNotIn("INTC", body["added_to_allowed"])
+        pending = client.get(
+            "/api/admin/symbol-proposals?status=pending",
+            headers={"X-API-Key": "test-key"},
+        ).json()
+        self.assertTrue(any(p["symbol"] == "INTC" for p in pending))
+
     def test_webhook_sets_check_needed_and_run_consumes(self):
         webhook = client.post(
             "/api/admin/webhooks/price-alert",
@@ -1917,7 +1954,15 @@ class SimulationLaneTests(unittest.TestCase):
         self.assertEqual(history["current_live_lane_id"], lane_b)
 
         portfolio_a = client.get("/api/dashboard/portfolio?lane_id=1").json()
-        self.assertLess(portfolio_a["cash_usd"], 10000.0)
+        # After promotion, lane 1 is synced to the new live lane's paper baseline.
+        portfolio_b = client.get(f"/api/dashboard/portfolio?lane_id={lane_b}").json()
+        self.assertAlmostEqual(portfolio_a["cash_usd"], portfolio_b["cash_usd"], places=2)
+        promote_body = promote_b.json()
+        self.assertIsNotNone(promote_body.get("live_strategy_version"))
+        self.assertTrue(any(s["lane_id"] == 1 for s in promote_body.get("synced_lanes", [])))
+        live_ctx = client.get(f"/api/automation/context?lane_id={lane_b}").json()
+        self.assertTrue(live_ctx["safety"]["trading_allowed"])
+        self.assertEqual(live_ctx["strategy"]["mode"], "live")
         compare = client.get("/api/dashboard/lanes/compare").json()
         row_a = next(row for row in compare["lanes"] if row["lane_id"] == 1)
         self.assertGreater(row_a["run_count"], 0)

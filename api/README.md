@@ -106,6 +106,7 @@ python scripts/seed_sample_run.py
 | POST | `/api/admin/symbol-proposals/import` | `X-API-Key` | Store ticker scout proposals (manual review) |
 | GET | `/api/admin/symbol-proposals` | `X-API-Key` | List proposals (`?status=pending`) |
 | POST | `/api/admin/symbol-proposals/promote` | `X-API-Key` | Promote proposals into allowed_symbols + discovery_pool |
+| POST | `/api/admin/symbol-proposals/auto-promote` | `X-API-Key` | Auto-promote top pending proposals by score |
 | POST | `/api/admin/symbol-proposals/{id}/dismiss` | `X-API-Key` | Dismiss a pending proposal |
 | GET | `/api/automation/news` | Read* | News/event summaries for agent (`symbol`, `since` filters) |
 | GET | `/api/dashboard/usage` | Read* | Cursor usage rows |
@@ -144,7 +145,7 @@ python scripts/seed_sample_run.py
 | POST | `/api/admin/lanes` | `X-API-Key` | Create simulation lane |
 | PATCH | `/api/admin/lanes/{id}` | `X-API-Key` | Update lane name/status/strategy/plan binding |
 | POST | `/api/admin/lanes/{id}/reset` | `X-API-Key` | Reset lane portfolio |
-| POST | `/api/admin/lanes/{id}/promote-to-live` | `X-API-Key` | Promote shadow/research lane to live |
+| POST | `/api/admin/lanes/{id}/promote-to-live` | `X-API-Key` | Promote lane to live; sync other lanes to baseline |
 | POST | `/api/admin/plans/sync-from-repo` | `X-API-Key` | Import `plans/*.json` from repo into agent_plans |
 | POST | `/api/admin/payloads/store` | `X-API-Key` | Store compressed/truncated raw MCP/API payload |
 

@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     sequential_lanes: bool = False
     lane_lock_ttl_minutes: int = 45
     plans_repo_dir: str = ""
+    scout_auto_promote_min_score: float = 0.65
+    scout_auto_promote_max_symbols: int = 8
 
     @property
     def read_auth_enabled(self) -> bool:

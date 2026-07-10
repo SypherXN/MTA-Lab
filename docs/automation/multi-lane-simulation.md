@@ -1,6 +1,6 @@
 # Multi-Lane Simulation
 
-Run multiple strategy/plan approaches against each other. Each lane is a **permanent simulation track** with its own full history. Only one lane is **live** at a time (real money); promoting a challenger moves live deployment without erasing anyone's past.
+Run multiple strategy/plan approaches against each other. Each lane is a **paper track** bound to one plan. Only one lane is **live** at a time (real Robinhood money). When you promote a lane to live, **other active lanes reset their paper portfolios to the same starting point** as that live baseline so challengers compare fairly from go-live onward.
 
 ## Three plans — concrete example
 
@@ -8,60 +8,44 @@ Say you want to compare **plan A**, **plan B**, and **plan C** and later switch 
 
 | Lane | Name | Bound plan | Role while researching | What you get |
 |------|------|------------|------------------------|--------------|
-| 1 | `plan-a` | plan v1 + strategy v2 | `research` | Full paper history: runs, decisions, equity curve, memory |
+| 1 | `plan-a` | plan v1 + strategy v2 | `research` | Paper history until promotion sync |
 | 2 | `plan-b` | plan v2 + strategy v2 | `research` | Same — completely separate portfolio |
 | 3 | `plan-c` | plan v3 + strategy v3 | `research` | Same |
-
-Each lane keeps its **own** cash, positions, snapshots, and symbol memory forever (subject to [retention](../ops-oci.md)). Lane 1's week-3 equity curve is still there after you promote lane 2 to live.
 
 ### After you promote plan B to live
 
 ```text
-Lane 1 (plan-a)  →  shadow   — still has full paper history; keeps simulating
-Lane 2 (plan-b)  →  live     — real Robinhood orders + paper mirror on this lane
-Lane 3 (plan-c)  →  research — still has full paper history; keeps simulating
+Lane 1 (plan-a)  →  shadow   — paper book reset to live baseline (RH cash/positions)
+Lane 2 (plan-b)  →  live     — real Robinhood orders; strategy rebound to live version
+Lane 3 (plan-c)  →  research — paper book reset to the same baseline
 ```
 
-Later you promote plan C:
+From that moment, shadows/research lanes run **as if they started when the Robinhood lane went live**. Pre-promotion paper history remains in past runs/snapshots for audit, but the active paper book matches the live starting point.
 
-```text
-Lane 2 (plan-b)  →  shadow   — full history preserved (including when it was live)
-Lane 3 (plan-c)  →  live     — real orders now follow plan C
+### Promote with Robinhood baseline (recommended)
+
+Pass the live account snapshot from MCP so shadows match real money:
+
+```bash
+curl -X POST "$API/api/admin/lanes/2/promote-to-live" \
+  -H "X-API-Key: $WRITE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cash_usd": 5000,
+    "positions": [{"symbol": "SPY", "quantity": 2, "avg_cost": 450}],
+    "sync_other_lanes": true,
+    "clear_symbol_memory": true
+  }'
 ```
 
-Nothing is deleted on promotion. Old live lanes become **shadow** challengers with their complete run log intact.
+If `cash_usd` is omitted, the API uses the promoted lane's current **simulated** portfolio as the baseline for other lanes.
 
-### Two different “histories” (both visible in the dashboard)
+Promotion also:
 
-| View | What it shows |
-|------|----------------|
-| **Per-lane portfolio / compare / paper equity chart** | Each plan's simulation from day one — select lane 1, 2, or 3 in the dashboard |
-| **Live Money Track** | One stitched timeline of **real-money deployment**: lane 2's snapshots while it was live, then lane 3's after handoff |
-
-The Live Money Track is not a fourth lane — it combines snapshots from whichever lane held `lane_role=live` during each period (`lane_live_periods` in the DB).
-
-```mermaid
-flowchart LR
-  subgraph paper [Permanent paper tracks — full history each]
-    L1["Lane 1 plan-a"]
-    L2["Lane 2 plan-b"]
-    L3["Lane 3 plan-c"]
-  end
-
-  subgraph live [Live deployment slot — only one at a time]
-    LiveNow["Currently live lane"]
-  end
-
-  L2 -.->|"promote"| LiveNow
-  LiveNow -.->|"demote to shadow"| L2
-  L3 -.->|"promote later"| LiveNow
-
-  subgraph track [Live Money Track dashboard]
-    Stitch["Stitched equity: L2 stint + L3 stint + …"]
-  end
-
-  LiveNow --> Stitch
-```
+1. Sets the lane `lane_role=live` (previous live → `shadow`)
+2. Activates a new **live** strategy version and **binds** the promoted lane to it
+3. Syncs other active lanes' paper cash/positions to the baseline
+4. Clears symbol memory on synced lanes (default) so old cooldowns don't block the new era
 
 ### Setup checklist for 3 plans
 
@@ -71,10 +55,11 @@ flowchart LR
    ```
    See [agent-plans.md](../agent-plans.md).
 2. Create three lanes via `POST /api/admin/lanes`, each with a distinct `plan_version` (and matching `strategy_version`).
-3. Run automations with `lane_id=1`, `2`, `3` (sequential mode on OCI — one lane per cycle).
-4. Compare via **Lane Comparison**, **Paper Portfolio Comparison**, and **Agent Plans** in the dashboard.
-5. Promote the winner: `POST /api/admin/lanes/{id}/promote-to-live`.
-6. Keep all three automations running — shadows continue paper sims; only the live lane places real orders.
+3. Run automations with `lane_id=1`, `2`, `3` (staggered crons recommended on OCI).
+4. Optionally run the [ticker scout](./ticker-scout-prompt.md) weekly so discovery_pool stays fresh.
+5. Compare via **Lane Comparison**, **Paper Portfolio Comparison**, and **Agent Plans** in the dashboard.
+6. Promote the winner: `POST /api/admin/lanes/{id}/promote-to-live` with RH baseline.
+7. Keep all three automations running — shadows continue paper sims from the synced baseline; only the live lane places real orders.
 
 ## Concepts
 
@@ -83,9 +68,10 @@ flowchart LR
 | **Lane** | A permanent simulation track bound to one `strategy_version` + one `plan_version`; owns its own runs, portfolio, snapshots, and memory |
 | **Primary lane** | Default lane (`id=1`, name `primary`) — used when `lane_id` is omitted |
 | **Research** | Paper-only lane for experiments |
-| **Shadow** | Paper lane running alongside live — often a former live lane; **history is never cleared on demotion** |
+| **Shadow** | Paper lane running alongside live — on promotion, paper book is synced to the live baseline |
 | **Live** | The one lane that may submit real `buy`/`sell` orders — a **role** assigned to a lane, not a separate database object |
 | **Live Money Track** | Dashboard view stitching equity from each lane's live stint(s), in order |
+| **Promotion sync** | When a lane goes live, other active lanes' paper cash/positions reset to the same baseline |
 
 Each lane is bound to a **strategy version + plan version** pair at creation time. Automations pass `lane_id` on context, plan, memory, and runs.
 
@@ -149,14 +135,20 @@ Per-lane metrics include **lane-scoped** `equity_change_usd` from snapshots (not
 
 ### 4. Promote challenger to live
 
-Requires preflight pass:
+Requires preflight pass. Prefer passing a Robinhood cash/positions baseline so other lanes sync to the same starting point:
 
 ```bash
 curl -X POST "$API/api/admin/lanes/2/promote-to-live" \
-  -H "X-API-Key: $WRITE_KEY"
+  -H "X-API-Key: $WRITE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cash_usd": 5000,
+    "positions": [],
+    "sync_other_lanes": true
+  }'
 ```
 
-Demotes the current live lane to `shadow`, sets the target to `live`, and activates live trading with the promoted lane's strategy rules.
+Demotes the current live lane to `shadow`, sets the target to `live`, binds the lane to a new live strategy version, and syncs other active lanes' paper books to the baseline.
 
 ## Cursor Automation setup
 

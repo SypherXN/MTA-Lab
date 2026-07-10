@@ -167,12 +167,17 @@ def get_daily_trade_usage(conn: sqlite3.Connection, lane_id: int | None = None) 
     return int(row["trade_count"]), float(row["notional"])
 
 
-def allowed_actions_for_strategy(strategy: StrategyOut) -> list[str]:
+def allowed_actions_for_strategy(
+    strategy: StrategyOut,
+    *,
+    lane_allows_live: bool | None = None,
+) -> list[str]:
     if strategy.kill_switch:
         return sorted(PASSIVE_ACTIONS)
 
     actions = set(PASSIVE_ACTIONS) | SIMULATED_ACTIONS
-    if trading_is_allowed(strategy):
+    live_ok = lane_allows_live if lane_allows_live is not None else trading_is_allowed(strategy)
+    if live_ok:
         actions |= LIVE_ACTIONS
     return sorted(actions)
 
@@ -182,15 +187,27 @@ def build_safety_snapshot(
     strategy: StrategyOut,
     lane_id: int | None = None,
 ) -> SafetySnapshotOut:
+    from app.lane_service import get_lane, lane_allows_live_trading
+
     daily_trades_used, daily_notional_used = get_daily_trade_usage(conn, lane_id=lane_id)
     max_trades = strategy.rules.max_daily_trades
     max_notional = strategy.rules.max_daily_notional_usd
+
+    lane_allows_live = False
+    if lane_id is not None:
+        try:
+            lane = get_lane(conn, lane_id)
+            lane_allows_live = lane_allows_live_trading(lane, strategy)
+        except ValueError:
+            lane_allows_live = False
+    else:
+        lane_allows_live = trading_is_allowed(strategy)
 
     return SafetySnapshotOut(
         mode=strategy.mode,
         trading_enabled=strategy.trading_enabled,
         kill_switch=strategy.kill_switch,
-        trading_allowed=trading_is_allowed(strategy),
+        trading_allowed=lane_allows_live,
         require_review_before_place=strategy.rules.require_review_before_place,
         allowed_symbols=strategy.rules.allowed_symbols,
         max_order_usd=strategy.rules.max_order_usd,
@@ -200,7 +217,9 @@ def build_safety_snapshot(
         daily_notional_used=daily_notional_used,
         daily_trades_remaining=max(0, max_trades - daily_trades_used),
         daily_notional_remaining=max(0.0, max_notional - daily_notional_used),
-        allowed_actions=allowed_actions_for_strategy(strategy),
+        allowed_actions=allowed_actions_for_strategy(
+            strategy, lane_allows_live=lane_allows_live
+        ),
     )
 
 

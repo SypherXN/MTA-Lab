@@ -429,6 +429,14 @@ class SymbolProposalPromoteResponse(BaseModel):
     message: str = ""
 
 
+class SymbolProposalAutoPromoteRequest(BaseModel):
+    min_score: float = Field(0.65, ge=0, le=1)
+    max_symbols: int = Field(8, ge=1, le=25)
+    enable_discovery: bool = True
+    discovery_max_per_run: int = Field(2, ge=0, le=10)
+    update_lanes: bool = True
+
+
 class LaneTurnOut(BaseModel):
     sequential_mode: bool
     granted: bool
@@ -1052,10 +1060,35 @@ class LaneUpdate(BaseModel):
     plan_version: str | None = None
 
 
+class LaneBaselinePosition(BaseModel):
+    symbol: str
+    quantity: float
+    avg_cost: float = Field(ge=0)
+
+
+class LanePromoteRequest(BaseModel):
+    """Optional Robinhood baseline so shadow lanes restart from the live starting point."""
+
+    cash_usd: float | None = Field(None, ge=0)
+    positions: list[LaneBaselinePosition] = Field(default_factory=list)
+    sync_other_lanes: bool = True
+    clear_symbol_memory: bool = True
+
+
+class LanePromoteSyncOut(BaseModel):
+    lane_id: int
+    cash_usd: float
+    positions: int
+    message: str = ""
+
+
 class LanePromoteResponse(BaseModel):
     lane: LaneOut
     message: str
     previous_live_lane_id: int | None = None
+    live_strategy_version: str | None = None
+    baseline_cash_usd: float | None = None
+    synced_lanes: list[LanePromoteSyncOut] = Field(default_factory=list)
 
 
 class LaneCompareRowOut(BaseModel):

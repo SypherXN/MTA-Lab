@@ -35,6 +35,7 @@ from app.schemas import (
     WebhookIngestResponse,
     LaneCreate,
     LaneOut,
+    LanePromoteRequest,
     LanePromoteResponse,
     LaneResetResponse,
     LaneUpdate,
@@ -44,6 +45,7 @@ from app.schemas import (
     SymbolProposalsImportResponse,
     SymbolProposalPromoteRequest,
     SymbolProposalPromoteResponse,
+    SymbolProposalAutoPromoteRequest,
 )
 
 from app.lane_service import (
@@ -55,6 +57,7 @@ from app.lane_service import (
 )
 from app.plan_service import sync_agent_plans_from_directory
 from app.symbol_proposal_service import (
+    auto_promote_pending_proposals,
     dismiss_symbol_proposal,
     import_symbol_proposals,
     list_symbol_proposals,
@@ -171,10 +174,13 @@ def admin_reset_lane(lane_id: int) -> LaneResetResponse:
     response_model=LanePromoteResponse,
     dependencies=[WriteKeyDep],
 )
-def admin_promote_lane(lane_id: int) -> LanePromoteResponse:
+def admin_promote_lane(
+    lane_id: int,
+    payload: LanePromoteRequest | None = None,
+) -> LanePromoteResponse:
     conn = get_connection()
     try:
-        result = promote_lane_to_live(conn, lane_id)
+        result = promote_lane_to_live(conn, lane_id, payload=payload)
         conn.commit()
         return result
     except ValueError as exc:
@@ -483,6 +489,30 @@ def admin_promote_symbol_proposals(
     conn = get_connection()
     try:
         result = promote_symbol_proposals(conn, payload)
+        conn.commit()
+        return result
+    except ValueError as exc:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post(
+    "/symbol-proposals/auto-promote",
+    response_model=SymbolProposalPromoteResponse,
+    dependencies=[WriteKeyDep],
+)
+def admin_auto_promote_symbol_proposals(
+    payload: SymbolProposalAutoPromoteRequest | None = None,
+) -> SymbolProposalPromoteResponse:
+    """Promote top pending proposals above min_score into the discovery pool."""
+    conn = get_connection()
+    try:
+        result = auto_promote_pending_proposals(conn, payload)
         conn.commit()
         return result
     except ValueError as exc:

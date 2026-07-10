@@ -57,7 +57,8 @@ Complete OAuth once on desktop before enabling the scheduled automation.
 Only after multiple successful research runs:
 
 1. Fund the Robinhood Agentic account with a small amount
-2. Pass preflight and use live promotion flow, **or** promote a lane via `POST /api/admin/lanes/{id}/promote-to-live`
+2. Pass preflight and promote a lane via `POST /api/admin/lanes/{id}/promote-to-live`
+   - Include Robinhood `cash_usd` + `positions` in the body so other lanes sync paper books to the same starting point
 3. Keep `kill_switch=false` only when you intend to allow trading
 4. Tighten schedule and monitor Robinhood push notifications
 

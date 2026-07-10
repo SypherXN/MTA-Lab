@@ -7,9 +7,12 @@ import sqlite3
 from app.config import settings
 from app.plan_service import get_agent_plan_by_version
 from app.schemas import (
+    LaneBaselinePosition,
     LaneCreate,
     LaneOut,
+    LanePromoteRequest,
     LanePromoteResponse,
+    LanePromoteSyncOut,
     LaneUpdate,
     StrategyOut,
 )
@@ -280,16 +283,125 @@ def ensure_primary_lane(conn: sqlite3.Connection) -> int:
     return PRIMARY_LANE_ID
 
 
+def apply_portfolio_baseline(
+    conn: sqlite3.Connection,
+    lane_id: int,
+    *,
+    cash_usd: float,
+    positions: list[LaneBaselinePosition],
+    clear_symbol_memory: bool = True,
+) -> LanePromoteSyncOut:
+    """Replace a lane's paper book with a cash + positions baseline."""
+    get_lane(conn, lane_id)
+    now = _iso_now()
+    conn.execute("DELETE FROM simulated_positions WHERE lane_id = ?", (lane_id,))
+    conn.execute(
+        """
+        INSERT INTO simulated_cash (lane_id, cash_usd, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(lane_id) DO UPDATE SET
+            cash_usd = excluded.cash_usd,
+            updated_at = excluded.updated_at
+        """,
+        (lane_id, cash_usd, now),
+    )
+    conn.execute(
+        "UPDATE simulation_lanes SET initial_cash_usd = ?, updated_at = ? WHERE id = ?",
+        (cash_usd, now, lane_id),
+    )
+
+    applied = 0
+    for pos in positions:
+        qty = float(pos.quantity)
+        if qty == 0:
+            continue
+        conn.execute(
+            """
+            INSERT INTO simulated_positions (lane_id, symbol, quantity, avg_cost, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (lane_id, pos.symbol.strip().upper(), qty, float(pos.avg_cost), now),
+        )
+        applied += 1
+
+    if clear_symbol_memory:
+        conn.execute("DELETE FROM symbol_memory_summaries WHERE lane_id = ?", (lane_id,))
+
+    from app.services import get_simulated_portfolio
+    from app.snapshot_service import record_portfolio_snapshot
+
+    portfolio = get_simulated_portfolio(conn, lane_id)
+    record_portfolio_snapshot(
+        conn,
+        lane_id=lane_id,
+        run_id=None,
+        source="promotion_sync",
+        cash_usd=portfolio.cash_usd,
+        total_equity=portfolio.total_equity,
+        unrealized_pnl=portfolio.total_unrealized_pnl,
+    )
+    return LanePromoteSyncOut(
+        lane_id=lane_id,
+        cash_usd=cash_usd,
+        positions=applied,
+        message=f"Synced lane {lane_id} to promotion baseline.",
+    )
+
+
+def _baseline_from_lane(conn: sqlite3.Connection, lane_id: int) -> tuple[float, list[LaneBaselinePosition]]:
+    from app.services import get_simulated_portfolio
+
+    portfolio = get_simulated_portfolio(conn, lane_id)
+    positions = [
+        LaneBaselinePosition(
+            symbol=p.symbol,
+            quantity=p.quantity,
+            avg_cost=p.avg_cost,
+        )
+        for p in portfolio.positions
+        if p.quantity
+    ]
+    return float(portfolio.cash_usd), positions
+
+
+def sync_other_lanes_to_baseline(
+    conn: sqlite3.Connection,
+    *,
+    live_lane_id: int,
+    cash_usd: float,
+    positions: list[LaneBaselinePosition],
+    clear_symbol_memory: bool = True,
+) -> list[LanePromoteSyncOut]:
+    synced: list[LanePromoteSyncOut] = []
+    for lane in list_lanes(conn, include_archived=False):
+        if lane.id == live_lane_id or lane.status != "active":
+            continue
+        if lane.lane_role == "live":
+            continue
+        synced.append(
+            apply_portfolio_baseline(
+                conn,
+                lane.id,
+                cash_usd=cash_usd,
+                positions=positions,
+                clear_symbol_memory=clear_symbol_memory,
+            )
+        )
+    return synced
+
+
 def promote_lane_to_live(
     conn: sqlite3.Connection,
     lane_id: int,
     *,
     approved_by: str | None = None,
+    payload: LanePromoteRequest | None = None,
 ) -> LanePromoteResponse:
     from app.alert_service import dispatch_typed_alert
     from app.preflight_service import get_live_preflight
     from app.services import activate_strategy_as_live
 
+    request = payload or LanePromoteRequest()
     lane = get_lane(conn, lane_id)
     if lane.lane_role == "live":
         raise ValueError(f"Lane {lane_id} is already live")
@@ -333,25 +445,70 @@ def promote_lane_to_live(
 
     _start_live_period(conn, lane_id, now)
 
-    activate_strategy_as_live(conn, strategy)
+    live_strategy = activate_strategy_as_live(conn, strategy)
+    conn.execute(
+        """
+        UPDATE simulation_lanes
+        SET strategy_version = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (live_strategy.version, now, lane_id),
+    )
+
+    # Resolve baseline: explicit Robinhood snapshot, else promoted lane paper book.
+    if request.cash_usd is not None:
+        baseline_cash = float(request.cash_usd)
+        baseline_positions = list(request.positions)
+        apply_portfolio_baseline(
+            conn,
+            lane_id,
+            cash_usd=baseline_cash,
+            positions=baseline_positions,
+            clear_symbol_memory=False,
+        )
+    else:
+        baseline_cash, baseline_positions = _baseline_from_lane(conn, lane_id)
+
+    synced_lanes: list[LanePromoteSyncOut] = []
+    if request.sync_other_lanes:
+        synced_lanes = sync_other_lanes_to_baseline(
+            conn,
+            live_lane_id=lane_id,
+            cash_usd=baseline_cash,
+            positions=baseline_positions,
+            clear_symbol_memory=request.clear_symbol_memory,
+        )
 
     dispatch_typed_alert(
         conn,
         alert_type="live_lane_promoted",
         title=f"Live lane promoted: {lane.name}",
         message=(
-            f"Lane #{lane_id} ({lane.strategy_version} + {lane.plan_version}) "
-            f"is now the live deployment."
+            f"Lane #{lane_id} ({live_strategy.version} + {lane.plan_version}) "
+            f"is now the live deployment. Synced {len(synced_lanes)} shadow/research lane(s) "
+            f"to baseline cash ${baseline_cash:,.2f}."
         ),
         entity_type="lane",
         entity_id=str(lane_id),
-        payload={"lane_id": lane_id, "approved_by": approved_by},
+        payload={
+            "lane_id": lane_id,
+            "approved_by": approved_by,
+            "live_strategy_version": live_strategy.version,
+            "baseline_cash_usd": baseline_cash,
+            "synced_lane_ids": [s.lane_id for s in synced_lanes],
+        },
         force=True,
     )
 
     updated = get_lane(conn, lane_id)
     return LanePromoteResponse(
         lane=updated,
-        message=f"Lane {lane_id} promoted to live.",
+        message=(
+            f"Lane {lane_id} promoted to live on strategy {live_strategy.version}. "
+            f"Synced {len(synced_lanes)} other lane(s) to the live starting point."
+        ),
         previous_live_lane_id=int(old_live["id"]) if old_live else None,
+        live_strategy_version=live_strategy.version,
+        baseline_cash_usd=baseline_cash,
+        synced_lanes=synced_lanes,
     )
