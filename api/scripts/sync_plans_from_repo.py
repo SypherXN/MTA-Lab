@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 API_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(API_ROOT))
+os.chdir(API_ROOT)
 
 from app.config import settings  # noqa: E402
 from app.database import get_connection, init_db  # noqa: E402
