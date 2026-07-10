@@ -11,6 +11,7 @@ from app.news_service import list_news_events
 from app.news_service import ingest_news_events, list_news_events
 from app.symbol_discovery_service import build_symbol_discovery
 from app.symbol_proposal_service import list_symbol_proposals
+from app.intervention_service import evaluate_intervention
 from app.plan_service import (
     get_active_agent_plan,
     get_agent_plan_by_version,
