@@ -192,10 +192,12 @@ def import_robinhood_orders(conn: sqlite3.Connection, payload: RobinhoodOrderImp
     )
     linked += relink.rowcount
 
-    if upserted:
-        from app.freshness_service import touch_data_source
+    from app.freshness_service import touch_data_source
 
+    if upserted:
         touch_data_source(conn, "robinhood_orders", detail=f"{upserted} orders")
+    else:
+        touch_data_source(conn, "robinhood_orders", detail="0 orders (empty account, sync confirmed)")
 
     return upserted, linked
 

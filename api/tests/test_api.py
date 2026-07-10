@@ -821,6 +821,47 @@ class Tier4Tests(unittest.TestCase):
         summary = client.get("/api/dashboard/reconciliation").json()
         self.assertGreaterEqual(summary["linked_orders"], 1)
 
+    def test_empty_robinhood_orders_import_unlocks_market_inputs(self):
+        client.post(
+            "/api/admin/quotes/import",
+            json={
+                "quotes": [
+                    {"symbol": "SPY", "price_usd": 520, "source": "test"},
+                    {"symbol": "QQQ", "price_usd": 450, "source": "test"},
+                    {"symbol": "AAPL", "price_usd": 190, "source": "test"},
+                    {"symbol": "MSFT", "price_usd": 420, "source": "test"},
+                ]
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        before = client.get("/api/automation/market-inputs").json()
+        orders_item = next(i for i in before["checklist"] if i["key"] == "recent_orders")
+        self.assertFalse(orders_item["present"])
+
+        imported = client.post(
+            "/api/admin/robinhood-orders/import",
+            json={"orders": []},
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(imported.status_code, 200)
+        self.assertEqual(imported.json()["upserted"], 0)
+
+        client.post(
+            "/api/automation/runs",
+            json={
+                "cursor_run_id": "empty-orders-sync-1",
+                "self_critique": "Confirmed empty Robinhood order book after sync.",
+                "decisions": [{"symbol": "SPY", "action": "hold", "reason": "Sync check."}],
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+
+        after = client.get("/api/automation/market-inputs").json()
+        orders_item = next(i for i in after["checklist"] if i["key"] == "recent_orders")
+        self.assertTrue(orders_item["present"])
+        self.assertIn("sync confirmed", orders_item["detail"])
+        self.assertTrue(after["ready"])
+
     def test_webhook_sets_check_needed_and_run_consumes(self):
         webhook = client.post(
             "/api/admin/webhooks/price-alert",

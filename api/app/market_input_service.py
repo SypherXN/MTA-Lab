@@ -114,6 +114,16 @@ def get_market_input_bundle(conn: sqlite3.Connection) -> MarketInputBundleOut:
     )
     has_index = any(q.symbol.upper() in {"SPY", "QQQ"} for q in index_quotes)
     has_orders = len(orders) > 0
+    robinhood_orders_freshness = next(
+        (s for s in freshness.sources if s.source_key == "robinhood_orders"),
+        None,
+    )
+    orders_sync_confirmed = (
+        robinhood_orders_freshness is not None
+        and robinhood_orders_freshness.last_updated_at is not None
+        and not robinhood_orders_freshness.is_stale
+    )
+    orders_reconciled = has_orders or orders_sync_confirmed
     has_positions = len(portfolio.positions) > 0 or portfolio.cash_usd > 0
 
     checklist = [
@@ -153,9 +163,17 @@ def get_market_input_bundle(conn: sqlite3.Connection) -> MarketInputBundleOut:
             key="recent_orders",
             label="Recent orders synced",
             required=True,
-            present=has_orders,
+            present=orders_reconciled,
             source="robinhood_orders table",
-            detail=f"{len(orders)} orders in API",
+            detail=(
+                f"{len(orders)} orders in API"
+                if has_orders
+                else (
+                    "0 orders (empty account, sync confirmed)"
+                    if orders_sync_confirmed
+                    else "0 orders — sync required"
+                )
+            ),
         ),
         MarketInputCheckItemOut(
             key="news_context",
