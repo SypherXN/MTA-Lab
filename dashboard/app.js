@@ -1,6 +1,94 @@
 const API_BASE = window.MTA_CONFIG?.API_BASE_URL || "http://localhost:8000";
 const API_READ_KEY = window.MTA_CONFIG?.API_READ_KEY;
 const SESSION_KEY = "mta_session_token";
+const DASHBOARD_VIEWS = {
+  overview: {
+    title: "Overview",
+    subtitle: "Live deployment and paper-lane performance at a glance.",
+  },
+  lanes: {
+    title: "Lanes",
+    subtitle: "Compare plan performance, portfolios, and pinned agent instructions.",
+  },
+  operations: {
+    title: "Operations",
+    subtitle: "Strategy controls, data readiness, reconciliation, and alerts.",
+  },
+  activity: {
+    title: "Activity",
+    subtitle: "The complete audit trail from agent runs to orders and decisions.",
+  },
+};
+const HASH_VIEW_MAP = {
+  overview: "overview",
+  lanes: "lanes",
+  "lane-comparison": "lanes",
+  "lane-portfolio": "lanes",
+  "lane-plans": "lanes",
+  operations: "operations",
+  "risk-controls": "operations",
+  "system-health": "operations",
+  "alert-inbox": "operations",
+  activity: "activity",
+  "activity-timeline": "activity",
+  "activity-runs": "activity",
+  "activity-decisions": "activity",
+};
+
+let activeDashboardView = "overview";
+let symbolReturnHash = "#overview";
+
+function setDashboardView(viewName, { scrollToTop = false } = {}) {
+  const view = DASHBOARD_VIEWS[viewName] ? viewName : "overview";
+  activeDashboardView = view;
+  document.querySelectorAll("[data-dashboard-view]").forEach((section) => {
+    section.hidden = section.dataset.dashboardView !== view;
+  });
+  document.querySelectorAll("[data-view-target]").forEach((link) => {
+    if (link.dataset.viewTarget === view) {
+      link.setAttribute("aria-current", "page");
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  });
+  const title = document.getElementById("view-title");
+  const subtitle = document.getElementById("view-subtitle");
+  if (title) title.textContent = DASHBOARD_VIEWS[view].title;
+  if (subtitle) subtitle.textContent = DASHBOARD_VIEWS[view].subtitle;
+  document.title = `${DASHBOARD_VIEWS[view].title} · MTA Lab`;
+  if (scrollToTop) {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
+
+function navigateToDashboardView(viewName) {
+  if (!DASHBOARD_VIEWS[viewName]) return;
+  const nextHash = `#${viewName}`;
+  if (window.location.hash !== nextHash) {
+    history.pushState(null, "", nextHash);
+  }
+  setDashboardView(viewName, { scrollToTop: false });
+}
+
+function routeDashboardHash() {
+  const symbolMatch = window.location.hash.match(/^#symbol\/([A-Za-z.]+)$/);
+  if (symbolMatch) {
+    if (!document.getElementById("app-shell").hidden) {
+      openSymbolModal(symbolMatch[1], { updateHash: false });
+    }
+    return;
+  }
+
+  document.getElementById("symbol-modal").hidden = true;
+  const hash = window.location.hash.replace(/^#/, "");
+  const view = HASH_VIEW_MAP[hash] || (DASHBOARD_VIEWS[hash] ? hash : "overview");
+  setDashboardView(view, { scrollToTop: Boolean(hash && DASHBOARD_VIEWS[hash]) });
+  if (hash && HASH_VIEW_MAP[hash] && !DASHBOARD_VIEWS[hash]) {
+    requestAnimationFrame(() => {
+      document.getElementById(hash)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+}
 
 function getSessionToken() {
   return localStorage.getItem(SESSION_KEY);
@@ -604,9 +692,12 @@ function openAgentPlanPanel(laneId) {
   if (!details) {
     return;
   }
+  navigateToDashboardView("lanes");
   details.open = true;
   hydrateAgentPlanPanel(laneId);
-  details.scrollIntoView({ behavior: "smooth", block: "start" });
+  requestAnimationFrame(() => {
+    details.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 function renderAgentPlansPanel(lanes) {
@@ -762,8 +853,14 @@ function renderStrategyCompare(compare) {
 
 function renderMobileStatus(status) {
   const bar = document.getElementById("mobile-status-bar");
+  const modeStatus = document.getElementById("sidebar-mode-status");
+  const runStatus = document.getElementById("sidebar-run-status");
+  const statusDot = document.getElementById("sidebar-status-dot");
   if (!status) {
     bar.hidden = true;
+    if (modeStatus) modeStatus.textContent = "Status unavailable";
+    if (runStatus) runStatus.textContent = "Dashboard API did not return a summary";
+    if (statusDot) statusDot.className = "status-dot warn";
     return;
   }
   bar.hidden = false;
@@ -776,6 +873,18 @@ function renderMobileStatus(status) {
     <span class="${status.budget_ok ? "good" : "bad"}">Budget ${status.budget_ok ? "ok" : "exceeded"}</span>
     <span class="muted">${status.last_run_at ? `Last run ${status.last_run_status}` : "No runs"}</span>
   `;
+  if (modeStatus) {
+    modeStatus.textContent = `${status.strategy_mode} · ${status.live_lane_name || "no live lane"}`;
+  }
+  if (runStatus) {
+    runStatus.textContent = status.last_run_at
+      ? `Last run ${status.last_run_status} · ${status.open_alerts} open alert${status.open_alerts === 1 ? "" : "s"}`
+      : `No runs yet · ${status.open_alerts} open alert${status.open_alerts === 1 ? "" : "s"}`;
+  }
+  if (statusDot) {
+    const statusClass = status.kill_switch || !status.budget_ok ? "bad" : status.open_alerts > 0 ? "warn" : "good";
+    statusDot.className = `status-dot ${statusClass}`;
+  }
 }
 
 function renderStats(stats) {
@@ -977,8 +1086,11 @@ function renderPortfolio(portfolio, laneMeta) {
     </div>
   `;
 
-  document.querySelectorAll("[data-symbol]").forEach((row) => {
-    row.addEventListener("click", () => openSymbolModal(row.dataset.symbol));
+  document.getElementById("portfolio-panel").querySelectorAll("[data-symbol]").forEach((row) => {
+    row.addEventListener("click", (event) => {
+      event.preventDefault();
+      openSymbolModal(row.dataset.symbol);
+    });
   });
 }
 
@@ -1374,15 +1486,19 @@ function renderSymbolDetail(memory) {
   `;
 }
 
-async function openSymbolModal(symbol) {
+async function openSymbolModal(symbol, { updateHash = true } = {}) {
   const modal = document.getElementById("symbol-modal");
   const body = document.getElementById("symbol-modal-body");
+  const normalizedSymbol = symbol.toUpperCase();
   modal.hidden = false;
   body.textContent = "Loading...";
-  document.getElementById("symbol-modal-title").textContent = symbol.toUpperCase();
-  window.location.hash = `symbol/${symbol.toUpperCase()}`;
+  document.getElementById("symbol-modal-title").textContent = normalizedSymbol;
+  if (updateHash) {
+    symbolReturnHash = `#${activeDashboardView}`;
+    history.pushState(null, "", `#symbol/${normalizedSymbol}`);
+  }
   try {
-    const memory = await fetchJson(`/api/automation/symbols/${encodeURIComponent(symbol)}/memory`);
+    const memory = await fetchJson(`/api/automation/symbols/${encodeURIComponent(normalizedSymbol)}/memory`);
     body.innerHTML = renderSymbolDetail(memory);
   } catch (error) {
     body.textContent = `Failed to load symbol: ${error.message}`;
@@ -1396,7 +1512,8 @@ function closeRunModal() {
 function closeSymbolModal() {
   document.getElementById("symbol-modal").hidden = true;
   if (window.location.hash.startsWith("#symbol/")) {
-    history.replaceState(null, "", window.location.pathname);
+    history.replaceState(null, "", symbolReturnHash);
+    setDashboardView(activeDashboardView);
   }
 }
 
@@ -1489,13 +1606,17 @@ function renderUsage(usageRows) {
 
 let dashboardLanes = [];
 let selectedPortfolioLaneId = null;
+let selectedEquityLaneIds = null;
 let liveTradingHistory = null;
 
 function populatePortfolioLaneSelect(lanes, preferredLaneId) {
   const select = document.getElementById("portfolio-lane-select");
   if (!select) return preferredLaneId;
   const liveLane = lanes.find((lane) => lane.lane_role === "live" && lane.status === "active");
-  const defaultId = preferredLaneId || liveLane?.id || lanes[0]?.id || 1;
+  const retainedLaneId = lanes.some((lane) => lane.id === selectedPortfolioLaneId)
+    ? selectedPortfolioLaneId
+    : null;
+  const defaultId = retainedLaneId || preferredLaneId || liveLane?.id || lanes[0]?.id || 1;
   select.innerHTML = lanes
     .map(
       (lane) =>
@@ -1512,6 +1633,7 @@ function laneMetaForId(laneId) {
 
 async function selectPortfolioLane(laneId) {
   selectedPortfolioLaneId = laneId;
+  navigateToDashboardView("lanes");
   const select = document.getElementById("portfolio-lane-select");
   if (select && Number(select.value) !== laneId) {
     select.value = String(laneId);
@@ -1552,7 +1674,12 @@ async function loadEquityCurvesForLanes(lanes) {
 
 async function loadDashboard() {
   const errorBanner = document.getElementById("error-banner");
+  const loadingBar = document.getElementById("global-loading");
+  const refreshButton = document.getElementById("refresh-btn");
   errorBanner.hidden = true;
+  loadingBar.hidden = false;
+  refreshButton.disabled = true;
+  refreshButton.setAttribute("aria-busy", "true");
 
   try {
     const [
@@ -1605,7 +1732,20 @@ async function loadDashboard() {
     renderLanesPanel(dashboardLanes, liveHistory);
     renderAgentPlansPanel(dashboardLanes);
     renderLaneCompare(laneCompare);
-    renderEquityLaneControls(dashboardLanes, new Set(dashboardLanes.map((l) => l.id)), async () => {
+    const availableLaneIds = new Set(dashboardLanes.map((lane) => lane.id));
+    if (selectedEquityLaneIds === null) {
+      selectedEquityLaneIds = new Set(availableLaneIds);
+    } else {
+      selectedEquityLaneIds = new Set(
+        [...selectedEquityLaneIds].filter((laneId) => availableLaneIds.has(laneId))
+      );
+    }
+    renderEquityLaneControls(dashboardLanes, selectedEquityLaneIds, async () => {
+      selectedEquityLaneIds = new Set(
+        [...document.querySelectorAll("#equity-lane-controls input[data-lane-id]:checked")].map((input) =>
+          Number(input.dataset.laneId)
+        )
+      );
       await loadEquityCurvesForLanes(dashboardLanes);
     });
     await loadEquityCurvesForLanes(dashboardLanes);
@@ -1620,13 +1760,26 @@ async function loadDashboard() {
     renderAlerts(alerts);
     renderStrategyCompare(compare);
     renderMobileStatus(mobileStatus);
+    const updatedAt = document.getElementById("dashboard-last-updated");
+    if (updatedAt) {
+      updatedAt.textContent = `Updated ${new Intl.DateTimeFormat(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+        second: "2-digit",
+      }).format(new Date())}`;
+    }
     showAppShell();
+    routeDashboardHash();
   } catch (error) {
     if (error.message === "Authentication required") {
       return;
     }
     errorBanner.hidden = false;
     errorBanner.textContent = `Failed to load dashboard: ${error.message}. Check MTA_API_BASE_URL (GitHub variable or local config.js) and API CORS settings.`;
+  } finally {
+    loadingBar.hidden = true;
+    refreshButton.disabled = false;
+    refreshButton.removeAttribute("aria-busy");
   }
 }
 
@@ -1683,12 +1836,7 @@ async function bootstrap() {
     }
   });
 
-  window.addEventListener("hashchange", () => {
-    const match = window.location.hash.match(/^#symbol\/([A-Za-z.]+)$/);
-    if (match) {
-      openSymbolModal(match[1]);
-    }
-  });
+  window.addEventListener("hashchange", routeDashboardHash);
 
   if (API_READ_KEY) {
     showAppShell();
@@ -1719,11 +1867,6 @@ async function bootstrap() {
   }
 
   showLoginScreen();
-
-  const hashMatch = window.location.hash.match(/^#symbol\/([A-Za-z.]+)$/);
-  if (hashMatch) {
-    openSymbolModal(hashMatch[1]);
-  }
 }
 
 bootstrap();

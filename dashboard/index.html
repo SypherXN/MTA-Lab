@@ -3,180 +3,413 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MTA-Lab Dashboard</title>
+    <title>MTA Lab · Trading Command Center</title>
     <link rel="icon" href="favicon-32.png" type="image/png" sizes="32x32" />
     <link rel="icon" href="icon-192.png" type="image/png" sizes="192x192" />
     <link rel="apple-touch-icon" href="apple-touch-icon.png" sizes="180x180" />
-    <meta name="theme-color" content="#5fa878" />
+    <meta name="theme-color" content="#101714" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Manrope:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=pastel-green" />
+    <link rel="stylesheet" href="styles.css?v=command-center" />
   </head>
   <body>
     <div id="login-screen" class="login-screen" hidden>
-      <article class="card login-card">
-        <h1>MTA-Lab Dashboard</h1>
-        <p class="subtitle">Sign in to view strategy, runs, and portfolio data.</p>
-        <form id="login-form">
-          <label for="login-password">Password</label>
-          <input id="login-password" type="password" autocomplete="current-password" required />
-          <button type="submit">Sign in</button>
-        </form>
-        <p id="login-error" class="error" hidden></p>
-        <p class="login-hint">Only required when <code>MTA_DASHBOARD_PASSWORD</code> is set on the API. Local dev usually needs no password.</p>
-      </article>
+      <div class="login-layout">
+        <section class="login-brand-panel">
+          <div class="brand-mark brand-mark-large" aria-hidden="true">M</div>
+          <p class="eyebrow">Market Test Agent</p>
+          <h1>Research, compare,<br />then deploy.</h1>
+          <p class="login-description">
+            One command center for paper lanes, live deployment, risk controls, and every decision behind them.
+          </p>
+        </section>
+        <article class="card login-card">
+          <p class="eyebrow">Secure dashboard</p>
+          <h2>Welcome back</h2>
+          <p class="subtitle">Sign in to view strategy, runs, and portfolio data.</p>
+          <form id="login-form">
+            <label for="login-password">Password</label>
+            <input id="login-password" type="password" autocomplete="current-password" required />
+            <button type="submit">Open dashboard</button>
+          </form>
+          <p id="login-error" class="error" hidden></p>
+          <p class="login-hint">
+            Only required when <code>MTA_DASHBOARD_PASSWORD</code> is set on the API.
+          </p>
+        </article>
+      </div>
     </div>
 
     <div id="app-shell" hidden>
-      <header>
-        <div>
-          <h1>MTA-Lab Dashboard</h1>
-          <p class="subtitle">Market Test Agent run history, decisions, and simulated portfolio</p>
-        </div>
-        <div class="header-actions">
-          <button id="export-json-btn" type="button" class="secondary">Export JSON</button>
-          <button id="logout-btn" type="button" class="secondary">Log out</button>
-          <button id="export-btn" type="button" class="secondary">Export CSV</button>
-          <button id="refresh-btn" type="button">Refresh</button>
-        </div>
-      </header>
+      <div class="dashboard-layout">
+        <aside class="sidebar">
+          <a class="brand" href="#overview" aria-label="MTA Lab overview">
+            <span class="brand-mark" aria-hidden="true">M</span>
+            <span>
+              <strong>MTA Lab</strong>
+              <small>Trading command center</small>
+            </span>
+          </a>
 
-      <div id="mobile-status-bar" class="mobile-status-bar" hidden></div>
+          <nav class="sidebar-nav" aria-label="Dashboard">
+            <a href="#overview" data-view-target="overview" aria-current="page">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z" />
+              </svg>
+              <span>Overview</span>
+            </a>
+            <a href="#lanes" data-view-target="lanes">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 4v16M12 4v16M19 4v16M3 7h4M10 12h4M17 17h4" />
+              </svg>
+              <span>Lanes</span>
+            </a>
+            <a href="#operations" data-view-target="operations">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3 4.5 6v5.4c0 4.7 3.2 8.6 7.5 9.6 4.3-1 7.5-4.9 7.5-9.6V6L12 3Zm0 5v4m0 4h.01" />
+              </svg>
+              <span>Operations</span>
+            </a>
+            <a href="#activity" data-view-target="activity">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 18V9m5 9V5m6 13v-7m5 7V3" />
+              </svg>
+              <span>Activity</span>
+            </a>
+          </nav>
 
-      <main>
-        <section class="grid" id="stats-grid"></section>
-
-        <section class="card lane-hero-card" style="margin-bottom: 24px">
-          <h2>Live Money Track</h2>
-          <p class="muted lane-intro">
-            Three layers: (1) each <strong>lane</strong> is a permanent paper track for one plan — full history always;
-            (2) only one lane is <strong>live</strong> at a time (real Robinhood orders);
-            (3) this panel stitches together every lane's live stint into one real-money timeline.
-            Promoting a new plan moves live deployment; former live lanes become shadow and keep all past runs.
-          </p>
-          <div id="live-money-track">Loading...</div>
-        </section>
-
-        <section class="card" style="margin-bottom: 24px">
-          <h2>Simulation Lanes</h2>
-          <p class="muted">One lane per plan approach — each keeps its own complete paper history. Compare here; promote one to live when ready.</p>
-          <div class="lane-role-legend">
-            <span><span class="lane-badge live">live</span> Real money — only this lane places Robinhood orders</span>
-            <span><span class="lane-badge shadow">shadow</span> Paper challenger — often a former live lane</span>
-            <span><span class="lane-badge research">research</span> Paper-only experiment</span>
+          <div class="sidebar-context">
+            <p class="sidebar-label">System status</p>
+            <div class="sidebar-status-row">
+              <span id="sidebar-status-dot" class="status-dot"></span>
+              <span id="sidebar-mode-status">Connecting…</span>
+            </div>
+            <p id="sidebar-run-status" class="sidebar-detail">Waiting for dashboard data</p>
           </div>
-          <div id="lanes-panel">Loading...</div>
-        </section>
 
-        <section class="card" style="margin-bottom: 24px">
-          <h2>Agent Plans</h2>
-          <p class="muted">
-            Each lane runs one pinned plan version. Plans are read-only here — edit
-            <code>plans/&lt;version&gt;.json</code> in GitHub, then sync on the server
-            (<code>python3 api/scripts/sync_plans_from_repo.py</code> or
-            <code>POST /api/admin/plans/sync-from-repo</code>).
-          </p>
-          <div id="agent-plans-panel">Loading...</div>
-        </section>
+          <div class="sidebar-foot">
+            <span>Market Test Agent</span>
+            <span>v1 console</span>
+          </div>
+        </aside>
 
-        <section class="card" style="margin-bottom: 24px">
-          <h2>Lane Comparison</h2>
-          <p class="muted">Head-to-head paper performance. Equity is per-lane (not global).</p>
-          <div id="lane-compare-panel">Loading...</div>
-        </section>
-
-        <section class="grid">
-          <article class="card">
-            <h2>Strategy</h2>
-            <div id="strategy-panel">Loading...</div>
-          </article>
-          <article class="card">
-            <h2>Safety Controls</h2>
-            <div id="safety-panel">Loading...</div>
-          </article>
-          <article class="card">
-            <h2>Simulated Portfolio</h2>
-            <div class="control-form portfolio-lane-control">
-              <label for="portfolio-lane-select">Lane
-                <select id="portfolio-lane-select"></select>
-              </label>
+        <div class="dashboard-workspace">
+          <header class="topbar">
+            <div class="topbar-title">
+              <p class="eyebrow">Workspace</p>
+              <h1 id="view-title">Overview</h1>
+              <p id="view-subtitle" class="subtitle">Live deployment and paper-lane performance at a glance.</p>
             </div>
-            <div id="portfolio-panel">Loading...</div>
-          </article>
-          <article class="card">
-            <div class="card-header-row">
-              <h2>Portfolio Snapshots</h2>
-              <span id="snapshot-lane-label" class="muted"></span>
+            <div class="header-actions">
+              <div class="export-actions">
+                <button id="export-json-btn" type="button" class="secondary compact-button">JSON</button>
+                <button id="export-btn" type="button" class="secondary compact-button">CSV</button>
+              </div>
+              <button id="logout-btn" type="button" class="secondary compact-button">Log out</button>
+              <button id="refresh-btn" type="button" class="refresh-button">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.4-2.3L20 9M4 15l2.5 2.3A7 7 0 0 0 17.9 15" />
+                </svg>
+                <span>Refresh</span>
+              </button>
             </div>
-            <div id="snapshot-summary-panel">Loading...</div>
-          </article>
-        </section>
+          </header>
 
-        <section class="grid">
-          <article class="card">
-            <h2>Reconciliation</h2>
-            <div id="reconciliation-panel">Loading...</div>
-          </article>
-          <article class="card">
-            <h2>Data Freshness</h2>
-            <div id="freshness-panel">Loading...</div>
-          </article>
-        </section>
+          <div id="global-loading" class="global-loading" hidden aria-hidden="true">
+            <span></span>
+          </div>
+          <p id="error-banner" class="error" hidden></p>
+          <div id="mobile-status-bar" class="mobile-status-bar" hidden></div>
 
-        <section class="card" style="margin-bottom: 24px">
-          <h2>Alert Inbox</h2>
-          <div id="alerts-panel">Loading...</div>
-        </section>
+          <main class="dashboard-content">
+            <section class="dashboard-view" data-dashboard-view="overview">
+              <div class="view-intro">
+                <div>
+                  <p class="eyebrow">Command center</p>
+                  <h2>What is happening now</h2>
+                  <p>Start with deployment status, then compare the permanent paper tracks.</p>
+                </div>
+                <p id="dashboard-last-updated" class="last-updated">Loading latest data…</p>
+              </div>
 
-        <section class="card" style="margin-bottom: 24px">
-          <h2>Paper Portfolio Comparison</h2>
-          <p class="muted">Overlay simulated equity curves for any lane. Use this to compare challengers before promoting one to live.</p>
-          <div id="equity-lane-controls" class="equity-lane-controls"></div>
-          <div id="equity-curve-panel">Loading...</div>
-        </section>
+              <section class="grid metric-grid" id="stats-grid"></section>
 
-        <details class="card legacy-compare" style="margin-bottom: 24px">
-          <summary>Strategy Version Comparison (legacy — global equity)</summary>
-          <p class="muted">Run counts by strategy version. Equity here mixes all lanes and is misleading once configs change — prefer Lane Comparison above.</p>
-          <div id="strategy-compare-panel">Loading...</div>
-        </details>
+              <div class="reading-guide" aria-label="How to read this dashboard">
+                <div><span>01</span><p><strong>Live track</strong> follows real-money deployment across lane handoffs.</p></div>
+                <div><span>02</span><p><strong>Simulation lanes</strong> preserve each plan’s independent paper record.</p></div>
+                <div><span>03</span><p><strong>Promoting a lane</strong> aligns other paper books to the same baseline.</p></div>
+              </div>
 
-        <section class="card" style="margin-bottom: 24px">
-          <h2>Agent Activity Timeline</h2>
-          <div id="timeline-panel">Loading...</div>
-        </section>
+              <section class="card feature-card lane-hero-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Real-money deployment</p>
+                    <h2>Live Money Track</h2>
+                  </div>
+                  <span class="section-number">01</span>
+                </div>
+                <p class="section-description">
+                  A continuous view of live deployment across lane handoffs. Every lane keeps its paper history;
+                  only the active live lane can place Robinhood orders.
+                </p>
+                <div id="live-money-track">Loading...</div>
+              </section>
 
-        <section class="card" style="margin-bottom: 24px">
-          <h2>Cost Dashboard</h2>
-          <div id="cost-dashboard-panel">Loading...</div>
-        </section>
+              <section class="card feature-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Plan-level experiments</p>
+                    <h2>Simulation Lanes</h2>
+                  </div>
+                  <a class="text-link" href="#lanes">Open lane workspace →</a>
+                </div>
+                <p class="section-description">
+                  Each lane is a permanent paper track for one plan. Compare results here, then inspect the full
+                  portfolio and evidence in the lane workspace.
+                </p>
+                <div class="lane-role-legend">
+                  <span><span class="lane-badge live">live</span> Real money</span>
+                  <span><span class="lane-badge shadow">shadow</span> Paper challenger</span>
+                  <span><span class="lane-badge research">research</span> Paper experiment</span>
+                </div>
+                <div id="lanes-panel">Loading...</div>
+              </section>
+            </section>
 
-        <section class="card" style="margin-bottom: 24px">
-          <h2>Cursor Usage</h2>
-          <div id="usage-table-wrap">Loading...</div>
-        </section>
+            <section class="dashboard-view" data-dashboard-view="lanes" hidden>
+              <div class="view-intro">
+                <div>
+                  <p class="eyebrow">Research workspace</p>
+                  <h2>Compare plans on equal footing</h2>
+                  <p>Performance, holdings, history, and the exact plan behind each lane.</p>
+                </div>
+                <div class="view-jump-links" aria-label="Lane section shortcuts">
+                  <a href="#lane-comparison">Compare</a>
+                  <a href="#lane-portfolio">Portfolio</a>
+                  <a href="#lane-plans">Plans</a>
+                </div>
+              </div>
 
-        <section class="card" style="margin-bottom: 24px">
-          <h2>Robinhood Orders</h2>
-          <div id="orders-table-wrap">Loading...</div>
-        </section>
+              <section id="lane-comparison" class="card feature-card section-anchor">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Head-to-head</p>
+                    <h2>Lane Comparison</h2>
+                  </div>
+                </div>
+                <p class="section-description">Paper performance is measured independently for every lane.</p>
+                <div id="lane-compare-panel">Loading...</div>
+              </section>
 
-        <section class="card" style="margin-bottom: 24px">
-          <h2>Recent Runs</h2>
-          <div id="runs-table-wrap">Loading...</div>
-        </section>
+              <section id="lane-portfolio" class="section-anchor portfolio-workspace">
+                <div class="portfolio-toolbar">
+                  <div>
+                    <p class="eyebrow">Inspect one lane</p>
+                    <h2>Portfolio detail</h2>
+                  </div>
+                  <div class="control-form portfolio-lane-control">
+                    <label for="portfolio-lane-select">Selected lane
+                      <select id="portfolio-lane-select"></select>
+                    </label>
+                  </div>
+                </div>
+                <div class="grid portfolio-grid">
+                  <article class="card">
+                    <div class="section-heading compact">
+                      <h2>Positions</h2>
+                      <span class="section-tag">Current book</span>
+                    </div>
+                    <div id="portfolio-panel">Loading...</div>
+                  </article>
+                  <article class="card">
+                    <div class="section-heading compact">
+                      <h2>Portfolio Snapshots</h2>
+                      <span id="snapshot-lane-label" class="section-tag"></span>
+                    </div>
+                    <div id="snapshot-summary-panel">Loading...</div>
+                  </article>
+                </div>
+              </section>
 
-        <section class="card">
-          <h2>Decision Log</h2>
-          <div id="decisions-table-wrap">Loading...</div>
-        </section>
+              <section class="card feature-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Normalized performance</p>
+                    <h2>Paper Portfolio Comparison</h2>
+                  </div>
+                </div>
+                <p class="section-description">
+                  Overlay simulated equity curves to compare challengers before promoting one to live.
+                </p>
+                <div id="equity-lane-controls" class="equity-lane-controls"></div>
+                <div id="equity-curve-panel">Loading...</div>
+              </section>
 
-        <p id="error-banner" class="error" hidden></p>
-      </main>
+              <section id="lane-plans" class="card feature-card section-anchor">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Pinned instructions</p>
+                    <h2>Agent Plans</h2>
+                  </div>
+                </div>
+                <p class="section-description">
+                  Every lane runs one read-only plan version. Edit <code>plans/&lt;version&gt;.json</code> in
+                  GitHub, then sync it through the existing plan import workflow.
+                </p>
+                <div id="agent-plans-panel">Loading...</div>
+              </section>
+
+              <details class="card legacy-compare">
+                <summary>Strategy Version Comparison <span>Legacy global equity</span></summary>
+                <p class="section-description">
+                  Run counts by strategy version. This view mixes lanes; use Lane Comparison for plan evaluation.
+                </p>
+                <div id="strategy-compare-panel">Loading...</div>
+              </details>
+            </section>
+
+            <section class="dashboard-view" data-dashboard-view="operations" hidden>
+              <div class="view-intro">
+                <div>
+                  <p class="eyebrow">Risk & reliability</p>
+                  <h2>Control the system safely</h2>
+                  <p>Review the active strategy, freshness, reconciliation, and alerts before changing controls.</p>
+                </div>
+                <div class="view-jump-links" aria-label="Operations section shortcuts">
+                  <a href="#risk-controls">Controls</a>
+                  <a href="#system-health">Health</a>
+                  <a href="#alert-inbox">Alerts</a>
+                </div>
+              </div>
+
+              <section id="risk-controls" class="grid operations-grid section-anchor">
+                <article class="card">
+                  <div class="section-heading compact">
+                    <div>
+                      <p class="eyebrow">Active configuration</p>
+                      <h2>Strategy</h2>
+                    </div>
+                  </div>
+                  <div id="strategy-panel">Loading...</div>
+                </article>
+                <article class="card safety-card">
+                  <div class="section-heading compact">
+                    <div>
+                      <p class="eyebrow">Write-protected</p>
+                      <h2>Safety Controls</h2>
+                    </div>
+                    <span class="section-tag warning-tag">Review carefully</span>
+                  </div>
+                  <div id="safety-panel">Loading...</div>
+                </article>
+              </section>
+
+              <section id="system-health" class="grid operations-grid section-anchor">
+                <article class="card">
+                  <div class="section-heading compact">
+                    <div>
+                      <p class="eyebrow">Book integrity</p>
+                      <h2>Reconciliation</h2>
+                    </div>
+                  </div>
+                  <div id="reconciliation-panel">Loading...</div>
+                </article>
+                <article class="card">
+                  <div class="section-heading compact">
+                    <div>
+                      <p class="eyebrow">Input readiness</p>
+                      <h2>Data Freshness</h2>
+                    </div>
+                  </div>
+                  <div id="freshness-panel">Loading...</div>
+                </article>
+              </section>
+
+              <section id="alert-inbox" class="card feature-card section-anchor">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Needs attention</p>
+                    <h2>Alert Inbox</h2>
+                  </div>
+                </div>
+                <p class="section-description">Acknowledge, investigate, and resolve operational exceptions.</p>
+                <div id="alerts-panel">Loading...</div>
+              </section>
+            </section>
+
+            <section class="dashboard-view" data-dashboard-view="activity" hidden>
+              <div class="view-intro">
+                <div>
+                  <p class="eyebrow">Audit trail</p>
+                  <h2>Understand every action</h2>
+                  <p>Follow agent activity from market evidence through decisions, orders, and model usage.</p>
+                </div>
+                <div class="view-jump-links" aria-label="Activity section shortcuts">
+                  <a href="#activity-timeline">Timeline</a>
+                  <a href="#activity-runs">Runs</a>
+                  <a href="#activity-decisions">Decisions</a>
+                </div>
+              </div>
+
+              <section id="activity-timeline" class="card feature-card section-anchor">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Chronological record</p>
+                    <h2>Agent Activity Timeline</h2>
+                  </div>
+                </div>
+                <div id="timeline-panel">Loading...</div>
+              </section>
+
+              <section class="card feature-card">
+                <div class="section-heading">
+                  <div>
+                    <p class="eyebrow">Model economics</p>
+                    <h2>Cost Dashboard</h2>
+                  </div>
+                </div>
+                <div id="cost-dashboard-panel">Loading...</div>
+              </section>
+
+              <section class="card feature-card data-card">
+                <div class="section-heading compact">
+                  <h2>Cursor Usage</h2>
+                  <span class="section-tag">Latest 25</span>
+                </div>
+                <div id="usage-table-wrap" class="table-wrap">Loading...</div>
+              </section>
+
+              <section class="card feature-card data-card">
+                <div class="section-heading compact">
+                  <h2>Robinhood Orders</h2>
+                  <span class="section-tag">Latest 25</span>
+                </div>
+                <div id="orders-table-wrap" class="table-wrap">Loading...</div>
+              </section>
+
+              <section id="activity-runs" class="card feature-card data-card section-anchor">
+                <div class="section-heading compact">
+                  <h2>Recent Runs</h2>
+                  <span class="section-tag">Click a row for evidence</span>
+                </div>
+                <div id="runs-table-wrap" class="table-wrap">Loading...</div>
+              </section>
+
+              <section id="activity-decisions" class="card feature-card data-card section-anchor">
+                <div class="section-heading compact">
+                  <h2>Decision Log</h2>
+                  <span class="section-tag">Latest 50</span>
+                </div>
+                <div id="decisions-table-wrap" class="table-wrap">Loading...</div>
+              </section>
+            </section>
+          </main>
+        </div>
+      </div>
     </div>
 
     <div id="run-modal" class="modal" hidden>
@@ -201,7 +434,7 @@
       </div>
     </div>
 
-    <script src="config.js?v=pastel-green"></script>
-    <script src="app.js?v=pastel-green"></script>
+    <script src="config.js?v=command-center"></script>
+    <script src="app.js?v=command-center"></script>
   </body>
 </html>

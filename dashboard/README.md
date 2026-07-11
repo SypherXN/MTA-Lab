@@ -80,27 +80,22 @@ MTA_API_BASE_URL=http://localhost:8000 ./dashboard/scripts/generate-config.sh
 
 `GET /api/auth/status` reports whether login is required.
 
-## UI sections
+## Dashboard workspaces
 
-| Section | Description |
-|---------|-------------|
-| **Stats grid** | Run counts, trades, Cursor cost |
-| **Live Money Track** | Stitched real-money equity across live stints; handoff timeline |
-| **Simulation Lanes** | Lane cards (live / shadow / research) with portfolio and plan links |
-| **Agent Plans** | Read-only plan viewer per lane (expand to load); GitHub edit link when configured |
-| **Lane Comparison** | Head-to-head metrics per lane |
-| **Strategy** | Active strategy summary and intervention status |
-| **Safety Controls** | Edit mode, kill switch, caps (`PATCH /api/dashboard/strategy`) |
-| **Simulated Portfolio** | Per-lane cash, positions, P&L (lane selector) |
-| **Portfolio Snapshots** | Equity snapshot summary for selected lane |
-| **Reconciliation / Freshness** | Order linkage and data staleness |
-| **Alert Inbox** | Open alerts with acknowledge/resolve |
-| **Paper Portfolio Comparison** | Multi-lane equity overlay chart |
-| **Timeline / Cost / Runs / Decisions** | Activity and audit views |
+The frontend groups the existing API-backed panels into four focused workspaces:
+
+| Workspace | Purpose |
+|-----------|---------|
+| **Overview** | Run metrics, the stitched real-money track, and concise cards for every simulation lane |
+| **Lanes** | Head-to-head comparison, selected-lane portfolio and snapshots, paper equity curves, and pinned agent plans |
+| **Operations** | Active strategy, safety controls, reconciliation, data freshness, and the alert inbox |
+| **Activity** | Agent timeline, Cursor cost and usage, Robinhood orders, recent runs, and the decision log |
+
+Navigation uses URL hashes (`#overview`, `#lanes`, `#operations`, and `#activity`) and does not change any API route or payload. Symbol drill-down links continue to use `#symbol/<ticker>`.
 
 ## Styling
 
-The dashboard uses a **pastel green** theme (mint background, sage cards, forest green accents). Styles live in `styles.css`; cache-busting query params on CSS/JS in `index.html` help during local iteration.
+The command-center theme uses a dark persistent navigation rail, an off-white data canvas, restrained semantic color, border-led cards, and tabular typography for key metrics. It collapses into horizontal navigation on tablet and mobile. Styles live in `styles.css`; cache-busting query params on CSS/JS in `index.html` help during local iteration.
 
 ## GitHub Pages deployment
 
