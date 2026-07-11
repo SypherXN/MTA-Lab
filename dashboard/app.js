@@ -4,7 +4,7 @@ const SESSION_KEY = "mta_session_token";
 const DASHBOARD_VIEWS = {
   overview: {
     title: "Overview",
-    subtitle: "Live deployment and paper-lane performance at a glance.",
+    subtitle: "Live deployment and lane performance at a glance.",
   },
   lanes: {
     title: "Lanes",
@@ -347,9 +347,9 @@ function laneRoleBadge(role) {
 }
 
 function laneRoleLabel(role) {
-  if (role === "live") return "Live (real money)";
-  if (role === "shadow") return "Shadow (paper challenger)";
-  return "Research (paper only)";
+  if (role === "live") return "Live";
+  if (role === "shadow") return "Shadow";
+  return "Research";
 }
 
 function formatPeriodRange(startedAt, endedAt, isCurrent) {
@@ -369,12 +369,12 @@ function renderLiveMoneyTrack(history, laneCompare) {
   const compareByLane = new Map((laneCompare?.lanes || []).map((row) => [row.lane_id, row]));
   const currentLine = history.current_live_lane_name
     ? `<p><strong>Current live lane:</strong> #${history.current_live_lane_id} ${history.current_live_lane_name} ${laneRoleBadge("live")}</p>`
-    : `<p class='muted'><strong>No live lane.</strong> All lanes are paper-only until you promote one via <code>POST /api/admin/lanes/{id}/promote-to-live</code>.</p>`;
+    : `<p class='muted'><strong>No live lane yet.</strong> Promote a shadow or research lane when preflight passes.</p>`;
 
   const stats = `
     <div class="live-track-stats">
-      <p><strong>Combined equity Δ:</strong> ${formatMoney(history.combined_equity_change_usd)}</p>
-      <p><strong>Real orders (all live stints):</strong> ${history.total_real_orders}</p>
+      <p><strong>Equity Δ:</strong> ${formatMoney(history.combined_equity_change_usd)}</p>
+      <p><strong>Real orders:</strong> ${history.total_real_orders}</p>
       <p><strong>Live stints:</strong> ${history.periods.length}</p>
     </div>
   `;
@@ -392,7 +392,7 @@ function renderLiveMoneyTrack(history, laneCompare) {
                 <span>${period.strategy_version} + ${period.plan_version}</span>
                 <span>Equity Δ ${formatMoney(period.equity_change_usd)}</span>
                 <span>${period.run_count} runs · ${period.real_order_count} real orders</span>
-                <button type="button" class="link-btn" data-view-lane="${period.lane_id}">View lane portfolio</button>
+                <button type="button" class="link-btn" data-view-lane="${period.lane_id}">View portfolio</button>
               </div>
             `;
           })
@@ -526,7 +526,7 @@ function renderLanesPanel(lanes, liveHistory) {
         lane.lane_role === "live"
           ? `<p class="lane-card-meta">Currently deploying real money.</p>`
           : wasLive
-            ? `<p class="lane-card-meta">Previously live (${periods.length} stint${periods.length === 1 ? "" : "s"}) — full history preserved.</p>`
+            ? `<p class="lane-card-meta">Previously live (${periods.length} stint${periods.length === 1 ? "" : "s"}).</p>`
             : `<p class="lane-card-meta">${laneRoleLabel(lane.lane_role)}</p>`;
       return `
         <article class="lane-card ${lane.lane_role}">
@@ -545,7 +545,7 @@ function renderLanesPanel(lanes, liveHistory) {
 
   panel.innerHTML = `
     <div class="lane-cards">${cards}</div>
-    <p class="muted">Automations pass <code>lane_id</code> on context, plan, memory, and runs. Create or promote lanes via admin API (write key).</p>
+    <p class="muted">Each automation passes <code>lane_id</code> on context, plan, memory, and runs.</p>
   `;
   panel.querySelectorAll("[data-view-lane]").forEach((btn) => {
     btn.addEventListener("click", () => selectPortfolioLane(Number(btn.dataset.viewLane)));
@@ -719,7 +719,7 @@ function renderAgentPlansPanel(lanes) {
         <details class="agent-plan-panel" id="plan-lane-${lane.id}" data-lane-id="${lane.id}">
           <summary class="agent-plan-summary">
             <span>#${lane.id} ${escapeHtml(lane.name)} ${laneRoleBadge(lane.lane_role)}</span>
-            <span class="muted">Plan ${escapeHtml(lane.plan_version)} · Strategy ${escapeHtml(lane.strategy_version)}</span>
+            <span class="muted plan-meta-line">Plan ${escapeHtml(lane.plan_version)} · Strategy ${escapeHtml(lane.strategy_version)}</span>
           </summary>
           <div class="agent-plan-body muted">Expand to load plan details.</div>
         </details>
@@ -893,10 +893,10 @@ function renderStats(stats) {
     ["Completed", stats.completed_runs],
     ["Failed", stats.failed_runs],
     ["Decisions", stats.total_decisions],
-    ["Simulated Trades", stats.simulated_trades],
-    ["Live Trades", stats.live_trades],
-    ["Holds / Skips", stats.holds_and_skips],
-    ["Cursor Cost", formatMoney(stats.total_cursor_cost_usd)],
+    ["Sim trades", stats.simulated_trades],
+    ["Live trades", stats.live_trades],
+    ["Holds", stats.holds_and_skips],
+    ["Cursor cost", formatMoney(stats.total_cursor_cost_usd)],
   ];
 
   document.getElementById("stats-grid").innerHTML = items
