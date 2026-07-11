@@ -1,0 +1,271 @@
+{
+  "version": "v4",
+  "name": "Ticker Exploration Research Plan",
+  "change_source": "github",
+  "run_order": [
+    {
+      "step": 1,
+      "action": "fetch_plan",
+      "description": "Load the explorer agent plan from the API.",
+      "endpoint": "GET /api/automation/plan",
+      "required": true
+    },
+    {
+      "step": 2,
+      "action": "fetch_context",
+      "description": "Load strategy, symbol_discovery policy, safety budget, and lane turn status.",
+      "endpoint": "GET /api/automation/context",
+      "required": true
+    },
+    {
+      "step": 3,
+      "action": "check_budget",
+      "description": "Verify daily/monthly and per-run-type budget before proceeding.",
+      "required": true
+    },
+    {
+      "step": 4,
+      "action": "check_intervention",
+      "description": "Verify no critical intervention triggers before proceeding.",
+      "endpoint": "GET /api/automation/intervention/check",
+      "required": true
+    },
+    {
+      "step": 5,
+      "action": "fetch_market_state",
+      "description": "Read portfolio, positions, index quotes (SPY/QQQ), and recent orders via Robinhood MCP.",
+      "source": "robinhood_mcp",
+      "required": true
+    },
+    {
+      "step": 6,
+      "action": "sync_orders",
+      "description": "Import Robinhood orders for reconciliation.",
+      "endpoint": "POST /api/admin/robinhood-orders/import",
+      "required": true
+    },
+    {
+      "step": 7,
+      "action": "fetch_market_inputs",
+      "description": "Load market input bundle; use movers and index state to prioritize discovery names.",
+      "endpoint": "GET /api/automation/market-inputs",
+      "required": true
+    },
+    {
+      "step": 8,
+      "action": "fetch_discovery_candidates",
+      "description": "Required: GET /api/automation/discovery/candidates. Review core_watchlist, candidate_pool, allowed_symbols, and pending_proposals.",
+      "endpoint": "GET /api/automation/discovery/candidates",
+      "required": true
+    },
+    {
+      "step": 9,
+      "action": "gather_discovery_ideas",
+      "description": "Use Robinhood MCP to shortlist pool names: get_popular_watchlists, get_watchlist_items (Daily Movers), get_earnings_calendar (7-14d), get_equity_quotes for liquidity. Prefer liquid large/mid-cap and major ETFs.",
+      "source": "robinhood_mcp",
+      "required": true
+    },
+    {
+      "step": 10,
+      "action": "fetch_symbol_memory",
+      "description": "For each core watchlist symbol and each discovery pick, load lane-scoped symbol memory.",
+      "endpoint": "GET /api/automation/symbols/{symbol}/memory",
+      "required": true
+    },
+    {
+      "step": 11,
+      "action": "fetch_news",
+      "description": "Light news pass on discovery picks: recent_news, GET /api/automation/news per symbol when material events may exist.",
+      "endpoint": "GET /api/automation/news",
+      "required": false
+    },
+    {
+      "step": 12,
+      "action": "analyze",
+      "description": "Analyze core watchlist anchors first, then up to symbol_discovery.max_per_run names from candidate_pool. Rank pool by liquidity, relative strength vs QQQ, and thesis clarity. Paper entries only on allowed_symbols with confidence >= plan threshold.",
+      "required": true
+    },
+    {
+      "step": 13,
+      "action": "review_trades",
+      "description": "Call review_equity_order for any would-be live trade; never place unless safety.trading_allowed.",
+      "required": false
+    },
+    {
+      "step": 14,
+      "action": "self_critique",
+      "description": "Verify discovery scope, allowed_symbols, cooldowns, and score consistency.",
+      "required": true
+    },
+    {
+      "step": 15,
+      "action": "log_run",
+      "description": "POST completed or failed run with decisions, quotes, usage, and errors.",
+      "endpoint": "POST /api/automation/runs",
+      "required": true
+    }
+  ],
+  "required_inputs": [
+    {
+      "name": "strategy",
+      "source": "api_context.strategy",
+      "description": "Explorer strategy with symbol_discovery enabled.",
+      "required": true
+    },
+    {
+      "name": "symbol_discovery",
+      "source": "api_context.symbol_discovery",
+      "description": "core_watchlist, candidate_pool, max_per_run, allowed_symbols.",
+      "required": true
+    },
+    {
+      "name": "safety",
+      "source": "api_context.safety",
+      "description": "Allowed actions and trading_allowed flag.",
+      "required": true
+    },
+    {
+      "name": "usage_budget",
+      "source": "api_context.usage_budget",
+      "description": "Run-type budget — trim discovery depth if tight.",
+      "required": true
+    },
+    {
+      "name": "market_input_bundle",
+      "source": "GET /api/automation/market-inputs",
+      "description": "Indices, movers, freshness readiness.",
+      "required": true
+    },
+    {
+      "name": "symbol_memory",
+      "source": "GET /api/automation/symbols/{symbol}/memory",
+      "description": "Per-symbol history on the explorer lane.",
+      "required": true
+    },
+    {
+      "name": "portfolio",
+      "source": "robinhood_mcp.get_portfolio",
+      "description": "Live account context for reconciliation.",
+      "required": true
+    },
+    {
+      "name": "quotes",
+      "source": "robinhood_mcp.get_equity_quotes",
+      "description": "Prices for anchors and discovery picks.",
+      "required": true
+    }
+  ],
+  "scoring_rules": [
+    {
+      "id": "respect_safety",
+      "priority": "critical",
+      "rule": "Treat api_context.safety and strategy rules as hard constraints."
+    },
+    {
+      "id": "research_simulation",
+      "priority": "critical",
+      "rule": "In research/paper mode use simulated_buy/simulated_sell only."
+    },
+    {
+      "id": "discovery_required",
+      "priority": "critical",
+      "rule": "When symbol_discovery.enabled is true, research up to max_per_run symbols from candidate_pool every run (not optional). Always analyze core_watchlist first."
+    },
+    {
+      "id": "allowed_symbols_only",
+      "priority": "critical",
+      "rule": "Never log trades on symbols outside allowed_symbols. Pool names outside allowed_symbols are research-only."
+    },
+    {
+      "id": "liquidity_filter",
+      "priority": "high",
+      "rule": "Prefer liquid large/mid-cap names and major ETFs; skip sub-$5 or illiquid tickers unless thesis is exceptional."
+    },
+    {
+      "id": "relative_strength",
+      "priority": "high",
+      "rule": "Favor discovery names with relative strength vs SPY/QQQ when technical scores are close."
+    },
+    {
+      "id": "decision_scoring",
+      "priority": "high",
+      "rule": "Every decision includes scores (technical, news, risk, confidence 0-1) and action_rationale."
+    },
+    {
+      "id": "symbol_coverage",
+      "priority": "high",
+      "rule": "Produce a decision row for every symbol analyzed, including hold and skip."
+    },
+    {
+      "id": "respect_cooldowns",
+      "priority": "high",
+      "rule": "Do not log buy/simulated_buy on symbols in api_context.cooldowns."
+    },
+    {
+      "id": "run_budget_guardrails",
+      "priority": "high",
+      "rule": "If usage_budget.budget_ok is false, hold/skip only and reduce discovery count."
+    },
+    {
+      "id": "prefer_hold_when_uncertain",
+      "priority": "medium",
+      "rule": "On thin data or conflicting signals, hold or skip discovery names."
+    }
+  ],
+  "data_sources": [
+    {
+      "name": "mta_api",
+      "type": "http",
+      "description": "MTA-Lab API for plan, context, discovery, logging."
+    },
+    {
+      "name": "robinhood_mcp",
+      "type": "mcp",
+      "url": "https://agent.robinhood.com/mcp/trading",
+      "tools": [
+        "get_portfolio",
+        "get_equity_positions",
+        "get_equity_quotes",
+        "get_equity_orders",
+        "get_popular_watchlists",
+        "get_watchlist_items",
+        "get_earnings_calendar",
+        "get_equity_fundamentals",
+        "get_equity_historicals",
+        "review_equity_order"
+      ]
+    }
+  ],
+  "stop_conditions": [
+    {
+      "condition": "context_or_plan_unavailable",
+      "action": "log_failed_run_and_stop",
+      "description": "Do not trade if plan or context cannot be loaded."
+    },
+    {
+      "condition": "intervention_required",
+      "action": "stop_or_hold_only",
+      "description": "Critical intervention → failed run; high → hold/skip only."
+    },
+    {
+      "condition": "discovery_disabled_or_empty",
+      "action": "hold_only",
+      "description": "If discovery is disabled or candidate_pool is empty, analyze anchors only and note in market_summary that the pool needs scout promotion."
+    },
+    {
+      "condition": "market_inputs_not_ready",
+      "action": "hold_only",
+      "description": "When market-inputs.ready is false, hold/skip and explain gaps."
+    },
+    {
+      "condition": "run_budget_exceeded",
+      "action": "hold_only",
+      "description": "When budget exceeded, hold/skip only."
+    },
+    {
+      "condition": "live_trading_not_allowed",
+      "action": "research_only",
+      "description": "Never place_equity_order unless live trading is explicitly allowed."
+    }
+  ]
+}

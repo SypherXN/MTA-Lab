@@ -56,10 +56,12 @@ POST {API_BASE}/api/admin/symbol-proposals/auto-promote
   "min_score": 0.65,
   "max_symbols": 8,
   "enable_discovery": true,
-  "discovery_max_per_run": 2,
-  "update_lanes": true
+  "discovery_max_per_run": 8,
+  "update_lanes": false
 }
 ```
+
+When using **ticker exploration** ([ticker-exploration-setup.md](./ticker-exploration-setup.md)), keep `update_lanes: false` so main lanes stay on their strategy versions. After promote, PATCH the **explorer** lane to the `strategy_version` in the response.
 
 6. Summarize proposed / auto-promoted / skipped. Do not place trades.
 

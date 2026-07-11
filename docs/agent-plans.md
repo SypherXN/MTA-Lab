@@ -11,6 +11,7 @@ plans/
   v1.json          # default research plan
   v2.json          # e.g. technical archetype (when added)
   v3.json          # e.g. sentiment archetype (when added)
+  v4.json          # ticker exploration (wider discovery lane)
 ```
 
 **Edit flow:**
