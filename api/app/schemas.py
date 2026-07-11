@@ -80,6 +80,9 @@ class DecisionSummaryOut(BaseModel):
     mode: str
     amount_usd: float | None
     created_at: str
+    lane_id: int | None = None
+    lane_name: str | None = None
+    lane_role: str | None = None
 
 
 class RunSummaryOut(BaseModel):

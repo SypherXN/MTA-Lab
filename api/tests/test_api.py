@@ -529,6 +529,9 @@ class DecisionScoringTests(unittest.TestCase):
         dashboard = client.get("/api/dashboard/decisions").json()
         scored = next(row for row in dashboard if row["run_id"] == run_id)
         self.assertEqual(scored["scores"]["confidence"], 0.55)
+        self.assertEqual(scored["lane_id"], 1)
+        self.assertIsNotNone(scored["lane_name"])
+        self.assertIsNotNone(scored["lane_role"])
 
     def test_decision_without_scores_backward_compatible(self):
         response = client.post(

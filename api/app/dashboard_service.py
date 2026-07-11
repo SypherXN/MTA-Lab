@@ -5,7 +5,7 @@ import json
 
 import sqlite3
 
-from app.decision_utils import DECISION_SELECT_COLUMNS, decision_summary_from_row
+from app.decision_utils import DECISION_DASHBOARD_FROM, DECISION_DASHBOARD_SELECT, decision_summary_from_row
 from app.run_utils import RUN_SUMMARY_FROM, RUN_SUMMARY_SELECT, run_summary_from_row
 from app.schemas import (
     CursorUsageImportRequest,
@@ -41,14 +41,14 @@ def get_dashboard_decisions(
     symbol: str | None = None,
 ) -> list[DecisionSummaryOut]:
     query = f"""
-        SELECT {DECISION_SELECT_COLUMNS}
-        FROM decisions
+        SELECT {DECISION_DASHBOARD_SELECT}
+        FROM {DECISION_DASHBOARD_FROM}
     """
     params: list = []
     if symbol:
-        query += " WHERE upper(symbol) = upper(?)"
+        query += " WHERE upper(d.symbol) = upper(?)"
         params.append(symbol)
-    query += " ORDER BY id DESC LIMIT ?"
+    query += " ORDER BY d.id DESC LIMIT ?"
     params.append(limit)
 
     return [

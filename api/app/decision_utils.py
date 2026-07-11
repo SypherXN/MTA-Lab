@@ -14,6 +14,17 @@ DECISION_SELECT_ALIASED = """
     d.risk_score, d.action_rationale, d.review_output, d.mode, d.amount_usd, d.created_at, d.order_id
 """
 
+DECISION_DASHBOARD_SELECT = f"""
+    {DECISION_SELECT_ALIASED.strip()},
+    r.lane_id, l.name AS lane_name, l.lane_role AS lane_role
+"""
+
+DECISION_DASHBOARD_FROM = """
+    decisions d
+    LEFT JOIN automation_runs r ON r.id = d.run_id
+    LEFT JOIN simulation_lanes l ON l.id = r.lane_id
+"""
+
 
 def scores_from_row(row: sqlite3.Row) -> DecisionScoresOut | None:
     technical = row["technical_score"]
@@ -30,6 +41,7 @@ def scores_from_row(row: sqlite3.Row) -> DecisionScoresOut | None:
 
 
 def decision_summary_from_row(row: sqlite3.Row) -> DecisionSummaryOut:
+    keys = row.keys()
     return DecisionSummaryOut(
         id=row["id"],
         run_id=row["run_id"],
@@ -43,6 +55,9 @@ def decision_summary_from_row(row: sqlite3.Row) -> DecisionSummaryOut:
         mode=row["mode"],
         amount_usd=row["amount_usd"],
         created_at=row["created_at"],
+        lane_id=row["lane_id"] if "lane_id" in keys else None,
+        lane_name=row["lane_name"] if "lane_name" in keys else None,
+        lane_role=row["lane_role"] if "lane_role" in keys else None,
     )
 
 

@@ -1547,12 +1547,19 @@ async function downloadExport() {
   URL.revokeObjectURL(url);
 }
 
+function renderDecisionLane(decision) {
+  if (!decision.lane_name) return "—";
+  const role = decision.lane_role || "research";
+  return `${laneRoleBadge(role)} ${escapeHtml(decision.lane_name)}`;
+}
+
 function renderDecisions(decisions) {
   const rows = decisions
     .map(
       (decision) => `
         <tr>
           <td>${decision.created_at}</td>
+          <td>${renderDecisionLane(decision)}</td>
           <td><button type="button" class="link-btn" data-symbol="${decision.symbol}">${decision.symbol}</button></td>
           <td>${decision.action}</td>
           <td>${renderScoreBars(decision.scores)}</td>
@@ -1567,9 +1574,9 @@ function renderDecisions(decisions) {
   document.getElementById("decisions-table-wrap").innerHTML = `
     <table>
       <thead>
-        <tr><th>Time</th><th>Symbol</th><th>Action</th><th>Explainability</th><th>Amount</th><th>Reason</th><th>Rationale</th></tr>
+        <tr><th>Time</th><th>Lane</th><th>Symbol</th><th>Action</th><th>Explainability</th><th>Amount</th><th>Reason</th><th>Rationale</th></tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="7">No decisions logged yet.</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="8">No decisions logged yet.</td></tr>`}</tbody>
     </table>
   `;
   document.querySelectorAll("#decisions-table-wrap [data-symbol]").forEach((btn) => {
