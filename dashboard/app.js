@@ -102,20 +102,11 @@ function setSessionToken(token) {
   }
 }
 
-function apiHeaders() {
-  const headers = { "Content-Type": "application/json" };
-  if (API_READ_KEY) {
-    headers["X-API-Key"] = API_READ_KEY;
-  }
-  const token = getSessionToken();
-  if (token) {
-    headers.Authorization = `Bearer ${token}`;
-  }
-  return headers;
-}
-
-function apiHeadersReadOnly() {
+function apiHeaders({ json = true } = {}) {
   const headers = {};
+  if (json) {
+    headers["Content-Type"] = "application/json";
+  }
   if (API_READ_KEY) {
     headers["X-API-Key"] = API_READ_KEY;
   }
@@ -146,7 +137,7 @@ async function patchJson(path, body) {
 async function fetchJson(path, options = {}) {
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
-    headers: { ...apiHeadersReadOnly(), ...(options.headers || {}) },
+    headers: { ...apiHeaders({ json: false }), ...(options.headers || {}) },
   });
   if (response.status === 401) {
     const needsLogin = !API_READ_KEY && !getSessionToken();
@@ -1519,7 +1510,7 @@ function closeSymbolModal() {
 
 async function downloadExportJson() {
   const response = await fetch(`${API_BASE}/api/dashboard/export?format=json&type=all`, {
-    headers: apiHeadersReadOnly(),
+    headers: apiHeaders({ json: false }),
   });
   if (!response.ok) throw new Error(`export failed with ${response.status}`);
   const blob = await response.blob();
@@ -1533,7 +1524,7 @@ async function downloadExportJson() {
 
 async function downloadExport() {
   const response = await fetch(`${API_BASE}/api/dashboard/export?format=csv&type=all`, {
-    headers: apiHeadersReadOnly(),
+    headers: apiHeaders({ json: false }),
   });
   if (!response.ok) {
     throw new Error(`export failed with ${response.status}`);

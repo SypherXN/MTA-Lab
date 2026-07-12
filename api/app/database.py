@@ -4,10 +4,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import settings
-from app.migration_service import apply_pending_migrations
-from app.plan_defaults import DEFAULT_AGENT_PLAN
+from app.migrations import MIGRATIONS
 from app.plan_service import canonical_plan_json, seed_plan_content
 from app.schemas import AgentPlanPayload
+
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema.sql"
 
 DEFAULT_RULES = {
@@ -94,63 +94,10 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 
 def _migrate_schema(conn: sqlite3.Connection) -> None:
-    apply_pending_migrations(conn)
-
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS agent_plan_contents (
-            content_hash TEXT PRIMARY KEY,
-            plan_json TEXT NOT NULL,
-            byte_size INTEGER NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        )
-        """
-    )
-
-    plan_cols = _table_columns(conn, "agent_plans")
-    if "content_hash" not in plan_cols:
-        conn.execute("ALTER TABLE agent_plans ADD COLUMN content_hash TEXT")
-    if "change_source" not in plan_cols:
-        conn.execute(
-            "ALTER TABLE agent_plans ADD COLUMN change_source TEXT NOT NULL DEFAULT 'seed'"
-        )
-
-    run_cols = _table_columns(conn, "automation_runs")
-    if "plan_version" not in run_cols:
-        conn.execute("ALTER TABLE automation_runs ADD COLUMN plan_version TEXT")
-    if "run_type" not in run_cols:
-        conn.execute(
-            "ALTER TABLE automation_runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'daily_research'"
-        )
-    if "self_critique" not in run_cols:
-        conn.execute("ALTER TABLE automation_runs ADD COLUMN self_critique TEXT")
-    if "budget_exceeded" not in run_cols:
-        conn.execute(
-            "ALTER TABLE automation_runs ADD COLUMN budget_exceeded INTEGER NOT NULL DEFAULT 0"
-        )
-    if "expected_budget_usd" not in run_cols:
-        conn.execute("ALTER TABLE automation_runs ADD COLUMN expected_budget_usd REAL")
-    if "actual_cost_usd" not in run_cols:
-        conn.execute("ALTER TABLE automation_runs ADD COLUMN actual_cost_usd REAL")
-
-    decision_cols = _table_columns(conn, "decisions")
-    for column, ddl in (
-        ("technical_score", "ALTER TABLE decisions ADD COLUMN technical_score REAL"),
-        ("news_score", "ALTER TABLE decisions ADD COLUMN news_score REAL"),
-        ("risk_score", "ALTER TABLE decisions ADD COLUMN risk_score REAL"),
-        ("action_rationale", "ALTER TABLE decisions ADD COLUMN action_rationale TEXT"),
-    ):
-        if column not in decision_cols:
-            conn.execute(ddl)
-
-    for row in conn.execute(
-        "SELECT id, plan_json FROM agent_plans WHERE content_hash IS NULL OR content_hash = ''"
-    ):
-        content_hash = seed_plan_content(conn, row["plan_json"])
-        conn.execute(
-            "UPDATE agent_plans SET content_hash = ? WHERE id = ?",
-            (content_hash, row["id"]),
-        )
+    """Apply versioned migrations, then one-time data backfills."""
+    _apply_pending_migrations(conn)
+    # Idempotent: safe for DBs that applied placeholder migrations before side effects existed
+    _migrate_lane_tables(conn)
 
     from app.memory_service import backfill_symbol_memory_summaries
     from app.freshness_service import backfill_freshness_from_existing
@@ -161,10 +108,117 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         backfill_symbol_memory_summaries(conn)
 
     backfill_freshness_from_existing(conn)
-    _migrate_lane_tables(conn)
     from app.live_history_service import backfill_live_periods
 
     backfill_live_periods(conn)
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
+    if column not in _table_columns(conn, table):
+        conn.execute(ddl)
+
+
+def _migration_side_effects(conn: sqlite3.Connection, version: str) -> None:
+    """Python upgrades paired with placeholder / partial SQL migrations."""
+    if version == "002_run_type_column":
+        _ensure_column(
+            conn,
+            "automation_runs",
+            "run_type",
+            "ALTER TABLE automation_runs ADD COLUMN run_type TEXT NOT NULL DEFAULT 'daily_research'",
+        )
+    elif version == "010_run_budget_columns":
+        _ensure_column(
+            conn,
+            "automation_runs",
+            "budget_exceeded",
+            "ALTER TABLE automation_runs ADD COLUMN budget_exceeded INTEGER NOT NULL DEFAULT 0",
+        )
+        _ensure_column(
+            conn,
+            "automation_runs",
+            "expected_budget_usd",
+            "ALTER TABLE automation_runs ADD COLUMN expected_budget_usd REAL",
+        )
+        _ensure_column(
+            conn,
+            "automation_runs",
+            "actual_cost_usd",
+            "ALTER TABLE automation_runs ADD COLUMN actual_cost_usd REAL",
+        )
+        _ensure_column(
+            conn,
+            "automation_runs",
+            "self_critique",
+            "ALTER TABLE automation_runs ADD COLUMN self_critique TEXT",
+        )
+        _ensure_column(
+            conn,
+            "automation_runs",
+            "plan_version",
+            "ALTER TABLE automation_runs ADD COLUMN plan_version TEXT",
+        )
+        for column, ddl in (
+            ("technical_score", "ALTER TABLE decisions ADD COLUMN technical_score REAL"),
+            ("news_score", "ALTER TABLE decisions ADD COLUMN news_score REAL"),
+            ("risk_score", "ALTER TABLE decisions ADD COLUMN risk_score REAL"),
+            ("action_rationale", "ALTER TABLE decisions ADD COLUMN action_rationale TEXT"),
+        ):
+            _ensure_column(conn, "decisions", column, ddl)
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_plan_contents (
+                content_hash TEXT PRIMARY KEY,
+                plan_json TEXT NOT NULL,
+                byte_size INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            """
+        )
+        _ensure_column(conn, "agent_plans", "content_hash", "ALTER TABLE agent_plans ADD COLUMN content_hash TEXT")
+        _ensure_column(
+            conn,
+            "agent_plans",
+            "change_source",
+            "ALTER TABLE agent_plans ADD COLUMN change_source TEXT NOT NULL DEFAULT 'seed'",
+        )
+        for row in conn.execute(
+            "SELECT id, plan_json FROM agent_plans WHERE content_hash IS NULL OR content_hash = ''"
+        ):
+            content_hash = seed_plan_content(conn, row["plan_json"])
+            conn.execute(
+                "UPDATE agent_plans SET content_hash = ? WHERE id = ?",
+                (content_hash, row["id"]),
+            )
+    elif version == "011_simulation_lanes":
+        _migrate_lane_tables(conn)
+
+
+def _apply_pending_migrations(conn: sqlite3.Connection) -> list[str]:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS schema_migrations (
+            version TEXT PRIMARY KEY,
+            applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+    applied: list[str] = []
+    for version, sql in sorted(MIGRATIONS.items()):
+        row = conn.execute(
+            "SELECT version FROM schema_migrations WHERE version = ?",
+            (version,),
+        ).fetchone()
+        if row is not None:
+            continue
+        conn.executescript(sql)
+        _migration_side_effects(conn, version)
+        conn.execute(
+            "INSERT INTO schema_migrations (version) VALUES (?)",
+            (version,),
+        )
+        applied.append(version)
+    return applied
 
 
 def _migrate_lane_tables(conn: sqlite3.Connection) -> None:
@@ -264,7 +318,12 @@ def _seed_agent_plan_if_empty(conn: sqlite3.Connection) -> None:
     if row["c"] > 0:
         return
 
-    payload = AgentPlanPayload.model_validate(DEFAULT_AGENT_PLAN)
+    from app.plan_service import _load_plan_file
+
+    plan_path = settings.resolved_plans_dir() / "v1.json"
+    if not plan_path.is_file():
+        raise FileNotFoundError(f"Default plan not found at {plan_path}")
+    version, name, payload, _make_active, _change_source = _load_plan_file(plan_path)
     plan_json = canonical_plan_json(payload)
     content_hash = seed_plan_content(conn, plan_json)
     conn.execute(
@@ -274,8 +333,8 @@ def _seed_agent_plan_if_empty(conn: sqlite3.Connection) -> None:
         ) VALUES (?, ?, ?, ?, ?, 1)
         """,
         (
-            "v1",
-            "Default Research Agent Plan",
+            version,
+            name,
             plan_json,
             content_hash,
             "seed",

@@ -61,7 +61,10 @@ Each file is a JSON object with metadata plus plan sections (or a nested `plan` 
 | `is_active` | no | If `true`, marks this version as the global active plan on insert |
 | `plan` | no | Alternative wrapper; inner object used if present |
 
-Sections match `AgentPlanPayload` in the API (`api/app/schemas.py`). See seeded content in [`api/app/plan_defaults.py`](../api/app/plan_defaults.py) and [`plans/v1.json`](../plans/v1.json).
+Plan JSON may set `"extends": "_base"` to inherit shared sections from `plans/_base.json`.
+Use `scoring_rules_extra` / `stop_conditions_extra` to append rules. Files starting with `_` are not synced as plan versions.
+
+Sections match `AgentPlanPayload` in the API (`api/app/schemas.py`). See seeded content in [`plans/v1.json`](../plans/v1.json).
 
 ## Versioning and lanes
 

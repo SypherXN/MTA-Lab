@@ -432,17 +432,6 @@ main {
   margin-top: 10px;
 }
 
-.legacy-compare summary {
-  cursor: pointer;
-  font-weight: 600;
-  margin-bottom: 8px;
-  color: var(--accent-strong);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.35rem 0.55rem;
-}
-
 .chart-line.live-track {
   stroke: var(--live);
   stroke-width: 2.5;
@@ -1793,6 +1782,8 @@ code {
 }
 
 .legacy-compare summary {
+  cursor: pointer;
+  font-weight: 600;
   margin: 0;
   color: var(--text);
   font-size: 0.78rem;

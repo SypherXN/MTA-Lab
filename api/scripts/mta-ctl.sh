@@ -202,7 +202,6 @@ main() {
     secure-env) cmd_secure_env "$@" ;;
     uptime-check) cmd_uptime_check "$@" ;;
     production-harden) cmd_production_hardening "$@" ;;
-    production-hardening) cmd_production_hardening "$@" ;;
     retention) cmd_retention "false" ;;
     retention-dry) cmd_retention "true" ;;
     help|-h|--help) usage ;;

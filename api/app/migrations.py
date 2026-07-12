@@ -1,4 +1,13 @@
-"""Numbered SQL migrations applied idempotently via schema_migrations."""
+"""Numbered SQL migrations applied idempotently via schema_migrations.
+
+Migration path (single mechanism):
+1. `schema.sql` — bootstrap CREATE IF NOT EXISTS for fresh installs
+2. `MIGRATIONS` below — versioned upgrades applied once via schema_migrations
+3. Python side-effects in `database._migration_side_effects` for SQLite ALTER /
+   table rebuilds that cannot be expressed as plain SQL placeholders
+
+Do not add ad-hoc ALTER loops outside this path.
+"""
 
 MIGRATIONS: dict[str, str] = {
     "001_dashboard_sessions": """

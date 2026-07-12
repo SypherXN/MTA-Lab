@@ -2,6 +2,7 @@
   "version": "v4",
   "name": "Ticker Exploration Research Plan",
   "change_source": "github",
+  "extends": "_base",
   "run_order": [
     {
       "step": 1,
@@ -105,6 +106,33 @@
       "required": true
     }
   ],
+  "scoring_rules_extra": [
+    {
+      "id": "discovery_required",
+      "priority": "critical",
+      "rule": "When symbol_discovery.enabled is true, research up to max_per_run symbols from candidate_pool every run (not optional). Always analyze core_watchlist first."
+    },
+    {
+      "id": "allowed_symbols_only",
+      "priority": "critical",
+      "rule": "Never log trades on symbols outside allowed_symbols. Pool names outside allowed_symbols are research-only."
+    },
+    {
+      "id": "liquidity_filter",
+      "priority": "high",
+      "rule": "Prefer liquid large/mid-cap names and major ETFs; skip sub-$5 or illiquid tickers unless thesis is exceptional."
+    },
+    {
+      "id": "relative_strength",
+      "priority": "high",
+      "rule": "Favor discovery names with relative strength vs SPY/QQQ when technical scores are close."
+    },
+    {
+      "id": "prefer_hold_when_uncertain",
+      "priority": "medium",
+      "rule": "On thin data or conflicting signals, hold or skip discovery names."
+    }
+  ],
   "required_inputs": [
     {
       "name": "strategy",
@@ -127,7 +155,7 @@
     {
       "name": "usage_budget",
       "source": "api_context.usage_budget",
-      "description": "Run-type budget — trim discovery depth if tight.",
+      "description": "Run-type budget \u2014 trim discovery depth if tight.",
       "required": true
     },
     {
@@ -155,61 +183,36 @@
       "required": true
     }
   ],
-  "scoring_rules": [
+  "stop_conditions": [
     {
-      "id": "respect_safety",
-      "priority": "critical",
-      "rule": "Treat api_context.safety and strategy rules as hard constraints."
+      "condition": "context_or_plan_unavailable",
+      "action": "log_failed_run_and_stop",
+      "description": "Do not trade if plan or context cannot be loaded."
     },
     {
-      "id": "research_simulation",
-      "priority": "critical",
-      "rule": "In research/paper mode use simulated_buy/simulated_sell only."
+      "condition": "intervention_required",
+      "action": "stop_or_hold_only",
+      "description": "Critical intervention \u2192 failed run; high \u2192 hold/skip only."
     },
     {
-      "id": "discovery_required",
-      "priority": "critical",
-      "rule": "When symbol_discovery.enabled is true, research up to max_per_run symbols from candidate_pool every run (not optional). Always analyze core_watchlist first."
+      "condition": "discovery_disabled_or_empty",
+      "action": "hold_only",
+      "description": "If discovery is disabled or candidate_pool is empty, analyze anchors only and note in market_summary that the pool needs scout promotion."
     },
     {
-      "id": "allowed_symbols_only",
-      "priority": "critical",
-      "rule": "Never log trades on symbols outside allowed_symbols. Pool names outside allowed_symbols are research-only."
+      "condition": "market_inputs_not_ready",
+      "action": "hold_only",
+      "description": "When market-inputs.ready is false, hold/skip and explain gaps."
     },
     {
-      "id": "liquidity_filter",
-      "priority": "high",
-      "rule": "Prefer liquid large/mid-cap names and major ETFs; skip sub-$5 or illiquid tickers unless thesis is exceptional."
+      "condition": "run_budget_exceeded",
+      "action": "hold_only",
+      "description": "When budget exceeded, hold/skip only."
     },
     {
-      "id": "relative_strength",
-      "priority": "high",
-      "rule": "Favor discovery names with relative strength vs SPY/QQQ when technical scores are close."
-    },
-    {
-      "id": "decision_scoring",
-      "priority": "high",
-      "rule": "Every decision includes scores (technical, news, risk, confidence 0-1) and action_rationale."
-    },
-    {
-      "id": "symbol_coverage",
-      "priority": "high",
-      "rule": "Produce a decision row for every symbol analyzed, including hold and skip."
-    },
-    {
-      "id": "respect_cooldowns",
-      "priority": "high",
-      "rule": "Do not log buy/simulated_buy on symbols in api_context.cooldowns."
-    },
-    {
-      "id": "run_budget_guardrails",
-      "priority": "high",
-      "rule": "If usage_budget.budget_ok is false, hold/skip only and reduce discovery count."
-    },
-    {
-      "id": "prefer_hold_when_uncertain",
-      "priority": "medium",
-      "rule": "On thin data or conflicting signals, hold or skip discovery names."
+      "condition": "live_trading_not_allowed",
+      "action": "research_only",
+      "description": "Never place_equity_order unless live trading is explicitly allowed."
     }
   ],
   "data_sources": [
@@ -234,38 +237,6 @@
         "get_equity_historicals",
         "review_equity_order"
       ]
-    }
-  ],
-  "stop_conditions": [
-    {
-      "condition": "context_or_plan_unavailable",
-      "action": "log_failed_run_and_stop",
-      "description": "Do not trade if plan or context cannot be loaded."
-    },
-    {
-      "condition": "intervention_required",
-      "action": "stop_or_hold_only",
-      "description": "Critical intervention → failed run; high → hold/skip only."
-    },
-    {
-      "condition": "discovery_disabled_or_empty",
-      "action": "hold_only",
-      "description": "If discovery is disabled or candidate_pool is empty, analyze anchors only and note in market_summary that the pool needs scout promotion."
-    },
-    {
-      "condition": "market_inputs_not_ready",
-      "action": "hold_only",
-      "description": "When market-inputs.ready is false, hold/skip and explain gaps."
-    },
-    {
-      "condition": "run_budget_exceeded",
-      "action": "hold_only",
-      "description": "When budget exceeded, hold/skip only."
-    },
-    {
-      "condition": "live_trading_not_allowed",
-      "action": "research_only",
-      "description": "Never place_equity_order unless live trading is explicitly allowed."
     }
   ]
 }

@@ -4,18 +4,28 @@ import sqlite3
 
 from app.schemas import DecisionDetailOut, DecisionScoresOut, DecisionSummaryOut
 
-DECISION_SELECT_COLUMNS = """
-    id, run_id, symbol, action, reason, confidence, technical_score, news_score,
-    risk_score, action_rationale, review_output, mode, amount_usd, created_at, order_id
-"""
-
-DECISION_SELECT_ALIASED = """
-    d.id, d.run_id, d.symbol, d.action, d.reason, d.confidence, d.technical_score, d.news_score,
-    d.risk_score, d.action_rationale, d.review_output, d.mode, d.amount_usd, d.created_at, d.order_id
-"""
+_DECISION_COLS = (
+    "id",
+    "run_id",
+    "symbol",
+    "action",
+    "reason",
+    "confidence",
+    "technical_score",
+    "news_score",
+    "risk_score",
+    "action_rationale",
+    "review_output",
+    "mode",
+    "amount_usd",
+    "created_at",
+    "order_id",
+)
+DECISION_SELECT_COLUMNS = ", ".join(_DECISION_COLS)
+DECISION_SELECT_ALIASED = ", ".join(f"d.{col}" for col in _DECISION_COLS)
 
 DECISION_DASHBOARD_SELECT = f"""
-    {DECISION_SELECT_ALIASED.strip()},
+    {DECISION_SELECT_ALIASED},
     r.lane_id, l.name AS lane_name, l.lane_role AS lane_role
 """
 

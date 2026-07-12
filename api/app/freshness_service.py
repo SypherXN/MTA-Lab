@@ -69,10 +69,6 @@ def _age_minutes(last_updated_at: str | None) -> float | None:
     return delta.total_seconds() / 60.0
 
 
-def get_data_freshness(conn: sqlite3.Connection) -> list[DataSourceFreshnessOut]:
-    return evaluate_freshness(conn).sources
-
-
 def evaluate_freshness(conn: sqlite3.Connection) -> DataFreshnessChecksOut:
     rows = {
         row["source_key"]: row

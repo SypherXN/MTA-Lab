@@ -25,7 +25,8 @@ Grep for the ID (e.g. `AP-03`, `DA-01`) to get description, benefit, impact, dif
 | Area | Typical paths |
 |------|----------------|
 | API | `api/app/`, `api/schema.sql`, `api/tests/test_api.py`, `api/README.md` |
-| Dashboard | `dashboard/` |
+| Dashboard | `dashboard/`, `dashboard/README.md` |
+| Agent plans | `plans/`, `docs/agent-plans.md` |
 | Automation docs | `docs/automation/` |
 | Ops | `docs/ops-oci.md`, `api/deploy/` |
 

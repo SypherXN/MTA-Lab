@@ -19,10 +19,6 @@ def _parse_iso(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def sequential_lanes_enabled() -> bool:
-    return settings.sequential_lanes
-
-
 def _expire_stale_lock(conn: sqlite3.Connection, now: str | None = None) -> None:
     now = now or _iso_now()
     conn.execute(
@@ -74,7 +70,7 @@ def _retry_after_seconds(expires_at: str) -> int:
 
 
 def get_lane_turn(conn: sqlite3.Connection, lane_id: int, *, acquire: bool = False) -> LaneTurnOut:
-    if not sequential_lanes_enabled():
+    if not settings.sequential_lanes:
         return LaneTurnOut(
             sequential_mode=False,
             granted=True,
@@ -182,7 +178,7 @@ def get_lane_turn(conn: sqlite3.Connection, lane_id: int, *, acquire: bool = Fal
 
 
 def verify_lane_turn_holder(conn: sqlite3.Connection, lane_id: int) -> None:
-    if not sequential_lanes_enabled():
+    if not settings.sequential_lanes:
         return
 
     now = _iso_now()
@@ -201,7 +197,7 @@ def verify_lane_turn_holder(conn: sqlite3.Connection, lane_id: int) -> None:
 
 
 def release_lane_turn(conn: sqlite3.Connection, lane_id: int) -> None:
-    if not sequential_lanes_enabled():
+    if not settings.sequential_lanes:
         return
 
     conn.execute(

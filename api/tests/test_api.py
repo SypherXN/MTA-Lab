@@ -1295,7 +1295,7 @@ class PriorityGroupBatch2Tests(unittest.TestCase):
         self.assertGreaterEqual(summary["snapshot_count"], 1)
         self.assertIn("change_pct", summary)
 
-        automation = client.get("/api/automation/portfolio/snapshots/summary").json()
+        automation = client.get("/api/dashboard/portfolio/snapshots/summary").json()
         self.assertEqual(automation["snapshot_count"], summary["snapshot_count"])
 
     def test_data_freshness_table_and_endpoints(self):
@@ -1304,10 +1304,10 @@ class PriorityGroupBatch2Tests(unittest.TestCase):
             json={"quotes": [{"symbol": "SPY", "price_usd": 500, "source": "test"}]},
             headers={"X-API-Key": "test-key"},
         )
-        freshness = client.get("/api/dashboard/freshness").json()
-        keys = {row["source_key"] for row in freshness}
+        freshness = client.get("/api/dashboard/freshness/check").json()
+        keys = {row["source_key"] for row in freshness["sources"]}
         self.assertIn("quotes", keys)
-        quotes_row = next(r for r in freshness if r["source_key"] == "quotes")
+        quotes_row = next(r for r in freshness["sources"] if r["source_key"] == "quotes")
         self.assertIsNotNone(quotes_row["last_updated_at"])
         self.assertIn("is_stale", quotes_row)
         self.assertFalse(quotes_row["is_stale"])
@@ -1605,10 +1605,6 @@ class PriorityGroupTop8Tests(unittest.TestCase):
         self.assertFalse(maintenance.json()["vacuum_ran"])
         self.assertGreater(maintenance.json()["snapshot_id"], 0)
 
-        snapshots = client.get("/api/dashboard/db/snapshots").json()
-        self.assertGreaterEqual(len(snapshots), 1)
-        self.assertIn("automation_runs", snapshots[0]["row_counts"])
-
     def test_strategy_performance_api(self):
         client.post(
             "/api/automation/runs",
@@ -1627,13 +1623,12 @@ class PriorityGroupTop8Tests(unittest.TestCase):
             },
             headers={"X-API-Key": "test-key"},
         )
-        perf = client.get("/api/dashboard/strategy/performance").json()
-        self.assertGreaterEqual(perf["decision_count"], 1)
-        self.assertGreaterEqual(perf["simulated_trades"], 1)
-        self.assertGreaterEqual(len(perf["by_action"]), 1)
+        compare = client.get("/api/dashboard/strategy/compare").json()
+        self.assertIn("strategy_versions", compare)
+        self.assertGreaterEqual(len(compare["strategy_versions"]), 1)
 
     def test_simulation_discipline_in_plan(self):
-        plan = client.get("/api/automation/plan").json()
+        plan = client.get("/api/automation/plans/v1").json()
         rule_ids = {rule["id"] for rule in plan["scoring_rules"]}
         self.assertIn("simulation_discipline", rule_ids)
 
@@ -1671,52 +1666,15 @@ class PriorityGroupG1Tests(unittest.TestCase):
         self.assertTrue(run["budget_exceeded"])
         self.assertAlmostEqual(run["expected_budget_usd"], 0.15)
 
-    def test_rollups_run_and_list(self):
-        client.post(
-            "/api/automation/runs",
-            json={
-                "cursor_run_id": "rollup-g1-1",
-                "decisions": [{"symbol": "SPY", "action": "hold", "reason": "Rollup test."}],
-            },
-            headers={"X-API-Key": "test-key"},
-        )
-        run = client.post(
-            "/api/admin/rollups/run?days=7",
-            headers={"X-API-Key": "test-key"},
-        )
-        self.assertEqual(run.status_code, 200)
-        rollups = client.get("/api/dashboard/rollups?limit=7").json()
-        self.assertGreaterEqual(len(rollups), 1)
-
     def test_strategy_compare(self):
         response = client.get("/api/dashboard/strategy/compare")
         self.assertEqual(response.status_code, 200)
         self.assertIn("strategy_versions", response.json())
 
-    def test_backtest_replay(self):
-        response = client.get("/api/dashboard/backtest/replay?alternate_max_order_usd=100")
-        self.assertEqual(response.status_code, 200)
-        body = response.json()
-        self.assertIn("total_decisions", body)
-
     def test_metrics_endpoint(self):
         response = client.get("/metrics")
         self.assertEqual(response.status_code, 200)
         self.assertIn("mta_runs_total", response.text)
-
-    def test_compact_payload_store(self):
-        response = client.post(
-            "/api/admin/payloads/store",
-            json={
-                "entity_type": "mcp",
-                "entity_id": "test-payload-1",
-                "payload": {"quotes": [{"symbol": "SPY", "price": 500}]},
-                "summary": "Test MCP snapshot",
-            },
-            headers={"X-API-Key": "test-key"},
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["entity_id"], "test-payload-1")
 
     def test_export_json(self):
         response = client.get("/api/dashboard/export?format=json&type=runs")

@@ -21,7 +21,7 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _count_rows(conn: sqlite3.Connection) -> dict[str, int]:
+def count_table_rows(conn: sqlite3.Connection) -> dict[str, int]:
     counts: dict[str, int] = {}
     for table in MONITORED_TABLES:
         try:
@@ -29,10 +29,6 @@ def _count_rows(conn: sqlite3.Connection) -> dict[str, int]:
         except sqlite3.OperationalError:
             counts[table] = 0
     return counts
-
-
-def count_table_rows(conn: sqlite3.Connection) -> dict[str, int]:
-    return _count_rows(conn)
 
 
 def _latest_backup_size() -> int | None:
@@ -48,7 +44,7 @@ def _latest_backup_size() -> int | None:
 def record_db_snapshot(conn: sqlite3.Connection) -> DbSizeSnapshotOut:
     db_path = Path(settings.database_path)
     file_size = db_path.stat().st_size if db_path.exists() else 0
-    row_counts = _count_rows(conn)
+    row_counts = count_table_rows(conn)
     backup_size = _latest_backup_size()
     now = _iso_now()
     cursor = conn.execute(

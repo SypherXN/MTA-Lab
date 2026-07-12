@@ -1,0 +1,229 @@
+{
+  "name": "Shared Research Plan Base",
+  "required_inputs": [
+    {
+      "name": "strategy",
+      "source": "api_context.strategy",
+      "description": "Active strategy mode, version, and rule caps.",
+      "required": true
+    },
+    {
+      "name": "safety",
+      "source": "api_context.safety",
+      "description": "Allowed actions, daily budget, cooldowns, and trading_allowed flag.",
+      "required": true
+    },
+    {
+      "name": "recent_decisions",
+      "source": "api_context.recent_decisions",
+      "description": "Prior agent actions for continuity and mistake avoidance.",
+      "required": true
+    },
+    {
+      "name": "manual_notes",
+      "source": "api_context.manual_notes",
+      "description": "Operator notes that should influence behavior.",
+      "required": false
+    },
+    {
+      "name": "market_signals",
+      "source": "api_context.market_signals",
+      "description": "Pending check_needed alerts from webhooks or price watcher.",
+      "required": false
+    },
+    {
+      "name": "usage_budget",
+      "source": "api_context.usage_budget",
+      "description": "Daily/monthly spend caps, per-run-type budgets, and remaining budget.",
+      "required": true
+    },
+    {
+      "name": "intervention_status",
+      "source": "api_context.intervention_status",
+      "description": "Triggers requiring operator review or hold-only mode.",
+      "required": true
+    },
+    {
+      "name": "market_input_bundle",
+      "source": "GET /api/automation/market-inputs",
+      "description": "Checklist of quotes, indices, volatility proxy, orders, movers, and freshness readiness.",
+      "required": true
+    },
+    {
+      "name": "recent_news",
+      "source": "api_context.recent_news / GET /api/automation/news",
+      "description": "Stored news headlines, earnings, macro events for watchlist symbols.",
+      "required": true
+    },
+    {
+      "name": "symbol_memory",
+      "source": "GET /api/automation/symbols/{symbol}/memory",
+      "description": "Per-symbol prior decisions, cooldown state, position, P&L, notes, and signals.",
+      "required": true
+    },
+    {
+      "name": "data_freshness",
+      "source": "api_context.freshness_checks",
+      "description": "Staleness warnings for quotes, portfolio, runs, and other inputs.",
+      "required": true
+    },
+    {
+      "name": "portfolio",
+      "source": "robinhood_mcp.get_portfolio",
+      "description": "Live account cash and buying power.",
+      "required": true
+    },
+    {
+      "name": "positions",
+      "source": "robinhood_mcp.get_equity_positions",
+      "description": "Current equity holdings.",
+      "required": true
+    },
+    {
+      "name": "quotes",
+      "source": "robinhood_mcp.get_equity_quotes",
+      "description": "Latest prices for watchlist symbols.",
+      "required": true
+    },
+    {
+      "name": "recent_orders",
+      "source": "robinhood_mcp.get_equity_orders",
+      "description": "Recent Robinhood order history for reconciliation.",
+      "required": true
+    }
+  ],
+  "data_sources": [
+    {
+      "name": "mta_api",
+      "type": "http",
+      "description": "MTA-Lab API for plan, context, logging, and reconciliation."
+    },
+    {
+      "name": "robinhood_mcp",
+      "type": "mcp",
+      "url": "https://agent.robinhood.com/mcp/trading",
+      "tools": [
+        "get_portfolio",
+        "get_equity_positions",
+        "get_equity_quotes",
+        "get_equity_orders",
+        "review_equity_order",
+        "place_equity_order"
+      ]
+    }
+  ],
+  "scoring_rules": [
+    {
+      "id": "respect_safety",
+      "priority": "critical",
+      "rule": "Treat api_context.safety and strategy rules as hard constraints."
+    },
+    {
+      "id": "research_simulation",
+      "priority": "critical",
+      "rule": "In research/paper mode use simulated_buy/simulated_sell; never place_equity_order unless trading_allowed."
+    },
+    {
+      "id": "use_market_input_bundle",
+      "priority": "high",
+      "rule": "After MCP sync, fetch market-inputs; do not analyze until required checklist items are present or explicitly noted as missing."
+    },
+    {
+      "id": "self_critique_before_submit",
+      "priority": "high",
+      "rule": "Before POST /runs, run self-critique against strategy, safety, cooldowns, freshness, symbol memory, and score consistency; include summary in self_critique field."
+    },
+    {
+      "id": "use_symbol_memory",
+      "priority": "high",
+      "rule": "Before analyzing a symbol, fetch symbol memory and reference prior actions and cooldowns in the decision rationale."
+    },
+    {
+      "id": "respect_data_freshness",
+      "priority": "high",
+      "rule": "If freshness_checks.ready_for_analysis is false, do not open new positions; hold or skip and cite stale sources."
+    },
+    {
+      "id": "symbol_coverage",
+      "priority": "high",
+      "rule": "Produce a decision row for every symbol analyzed, including hold and skip."
+    },
+    {
+      "id": "decision_scoring",
+      "priority": "high",
+      "rule": "Every decision must include scores (technical, news, risk, confidence on 0-1) and action_rationale explaining how scores led to the action."
+    },
+    {
+      "id": "respect_cooldowns",
+      "priority": "high",
+      "rule": "Do not log buy/simulated_buy on symbols listed in api_context.cooldowns."
+    },
+    {
+      "id": "simulation_discipline",
+      "priority": "high",
+      "rule": "In research mode use simulated_buy/simulated_sell with fill_price and amount_usd; never live buy/sell unless safety.trading_allowed."
+    },
+    {
+      "id": "run_budget_guardrails",
+      "priority": "high",
+      "rule": "Before deep analysis, check usage_budget.budget_ok and run_type_budget_usd for this run_type; hold/skip only if daily/monthly exceeded."
+    }
+  ],
+  "stop_conditions": [
+    {
+      "condition": "intervention_required",
+      "action": "stop_or_hold_only",
+      "description": "When intervention_status.intervention_required is true, follow severity: critical \u2192 failed run; high \u2192 hold/skip only."
+    },
+    {
+      "condition": "context_or_plan_unavailable",
+      "action": "log_failed_run_and_stop",
+      "description": "Do not trade if plan or context cannot be loaded."
+    },
+    {
+      "condition": "kill_switch_active",
+      "action": "hold_only",
+      "description": "Only passive actions when kill_switch is true."
+    },
+    {
+      "condition": "required_mcp_data_missing",
+      "action": "log_failed_run_and_stop",
+      "description": "Stop if portfolio, quotes, or orders cannot be retrieved."
+    },
+    {
+      "condition": "market_inputs_not_ready",
+      "action": "hold_only",
+      "description": "When market-inputs.ready is false, hold/skip and explain missing checklist items."
+    },
+    {
+      "condition": "self_critique_failed",
+      "action": "revise_or_hold",
+      "description": "Downgrade trade intents to hold/skip if self-critique finds safety or data gaps."
+    },
+    {
+      "condition": "stale_required_inputs",
+      "action": "hold_only",
+      "description": "When freshness_checks.ready_for_analysis is false, only hold/skip and note stale sources."
+    },
+    {
+      "condition": "symbol_memory_unavailable",
+      "action": "skip_symbol",
+      "description": "Skip symbols whose memory endpoint fails rather than analyzing without history."
+    },
+    {
+      "condition": "safety_violation_detected",
+      "action": "do_not_submit_trade_actions",
+      "description": "Downgrade to hold/skip rather than violating caps or cooldowns."
+    },
+    {
+      "condition": "run_budget_exceeded",
+      "action": "hold_only",
+      "description": "When usage_budget daily/monthly exceeded, only hold/skip; note budget in market_summary."
+    },
+    {
+      "condition": "live_trading_not_allowed",
+      "action": "research_only",
+      "description": "Never call place_equity_order unless mode=live, trading_enabled, and kill_switch=false."
+    }
+  ]
+}

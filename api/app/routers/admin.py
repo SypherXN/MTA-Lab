@@ -8,13 +8,9 @@ from app.integration_service import import_quotes, import_robinhood_orders, inge
 from app.live_promotion_service import approve_live_promotion, request_live_promotion
 from app.maintenance_service import run_maintenance
 from app.news_service import ingest_news_events
-from app.payload_service import store_compact_payload
 from app.retention_service import run_retention
-from app.rollup_service import run_rollup_job
 from app.schemas import (
     AlertDispatchResponse,
-    CompactPayloadOut,
-    CompactPayloadStoreRequest,
     CursorUsageImportRequest,
     CursorUsageImportResponse,
     LivePromotionApproveRequest,
@@ -29,7 +25,6 @@ from app.schemas import (
     QuoteImportResponse,
     RetentionRunOut,
     RetentionRunRequest,
-    RollupRunOut,
     RobinhoodOrderImportRequest,
     RobinhoodOrderImportResponse,
     WebhookIngestResponse,
@@ -366,41 +361,6 @@ def maintenance_run(
     except Exception:
         conn.rollback()
         raise
-    finally:
-        conn.close()
-
-
-@router.post("/rollups/run", response_model=RollupRunOut, dependencies=[WriteKeyDep])
-def rollups_run(days: int = Query(default=30, ge=1, le=365)) -> RollupRunOut:
-    conn = get_connection()
-    try:
-        result = run_rollup_job(conn, days=days)
-        conn.commit()
-        return result
-    except ValueError as exc:
-        conn.rollback()
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    finally:
-        conn.close()
-
-
-@router.post(
-    "/payloads/store",
-    response_model=CompactPayloadOut,
-    dependencies=[WriteKeyDep],
-)
-def compact_payload_store(payload: CompactPayloadStoreRequest) -> CompactPayloadOut:
-    conn = get_connection()
-    try:
-        result = store_compact_payload(
-            conn,
-            entity_type=payload.entity_type,
-            entity_id=payload.entity_id,
-            payload=payload.payload,
-            summary=payload.summary,
-        )
-        conn.commit()
-        return result
     finally:
         conn.close()
 

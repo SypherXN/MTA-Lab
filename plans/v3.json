@@ -2,6 +2,7 @@
   "version": "v3",
   "name": "News and Event Research Plan",
   "change_source": "github",
+  "extends": "_base",
   "run_order": [
     {
       "step": 1,
@@ -89,6 +90,38 @@
       "description": "POST completed or failed run with decisions, quotes, usage, and errors.",
       "endpoint": "POST /api/automation/runs",
       "required": true
+    }
+  ],
+  "scoring_rules_extra": [
+    {
+      "id": "news_primary",
+      "priority": "critical",
+      "rule": "News score is the primary driver. simulated_buy requires a material catalyst in news or earnings context and news score >= 0.55."
+    },
+    {
+      "id": "catalyst_required_for_entry",
+      "priority": "high",
+      "rule": "Do not log simulated_buy without naming the specific headline, earnings event, or macro item in action_rationale."
+    },
+    {
+      "id": "technical_confirmatory",
+      "priority": "high",
+      "rule": "Technical score confirms entry only; do not buy into clearly hostile tape (technical < 0.35) even with good news."
+    },
+    {
+      "id": "use_news_context",
+      "priority": "critical",
+      "rule": "Review recent_news, per-symbol news, and symbol memory news before scoring; cite sources and dates in action_rationale."
+    },
+    {
+      "id": "skip_without_catalyst",
+      "priority": "high",
+      "rule": "When no material news exists for a symbol, prefer skip over simulated_buy (hold is for existing positions)."
+    },
+    {
+      "id": "stale_news_blocks_entry",
+      "priority": "high",
+      "rule": "If news source is stale or missing for a symbol you would buy, skip rather than invent a thesis."
     }
   ],
   "required_inputs": [
@@ -189,120 +222,11 @@
       "required": true
     }
   ],
-  "scoring_rules": [
-    {
-      "id": "respect_safety",
-      "priority": "critical",
-      "rule": "Treat api_context.safety and strategy rules as hard constraints."
-    },
-    {
-      "id": "research_simulation",
-      "priority": "critical",
-      "rule": "In research/paper mode use simulated_buy/simulated_sell; never place_equity_order unless trading_allowed."
-    },
-    {
-      "id": "news_primary",
-      "priority": "critical",
-      "rule": "News score is the primary driver. simulated_buy requires a material catalyst in news or earnings context and news score >= 0.55."
-    },
-    {
-      "id": "catalyst_required_for_entry",
-      "priority": "high",
-      "rule": "Do not log simulated_buy without naming the specific headline, earnings event, or macro item in action_rationale."
-    },
-    {
-      "id": "technical_confirmatory",
-      "priority": "high",
-      "rule": "Technical score confirms entry only; do not buy into clearly hostile tape (technical < 0.35) even with good news."
-    },
-    {
-      "id": "use_news_context",
-      "priority": "critical",
-      "rule": "Review recent_news, per-symbol news, and symbol memory news before scoring; cite sources and dates in action_rationale."
-    },
-    {
-      "id": "skip_without_catalyst",
-      "priority": "high",
-      "rule": "When no material news exists for a symbol, prefer skip over simulated_buy (hold is for existing positions)."
-    },
-    {
-      "id": "use_market_input_bundle",
-      "priority": "high",
-      "rule": "Fetch market-inputs; require watchlist quotes before new entries."
-    },
-    {
-      "id": "use_symbol_memory",
-      "priority": "high",
-      "rule": "Before analyzing a symbol, fetch symbol memory and reference prior actions and cooldowns."
-    },
-    {
-      "id": "respect_data_freshness",
-      "priority": "high",
-      "rule": "If freshness_checks.ready_for_analysis is false, do not open new positions; hold or skip and cite stale sources."
-    },
-    {
-      "id": "stale_news_blocks_entry",
-      "priority": "high",
-      "rule": "If news source is stale or missing for a symbol you would buy, skip rather than invent a thesis."
-    },
-    {
-      "id": "symbol_coverage",
-      "priority": "high",
-      "rule": "Produce a decision row for every symbol analyzed, including hold and skip."
-    },
-    {
-      "id": "decision_scoring",
-      "priority": "high",
-      "rule": "Every decision must include scores (technical, news, risk, confidence on 0-1) and action_rationale explaining the catalyst or lack thereof."
-    },
-    {
-      "id": "respect_cooldowns",
-      "priority": "high",
-      "rule": "Do not log buy/simulated_buy on symbols listed in api_context.cooldowns."
-    },
-    {
-      "id": "simulation_discipline",
-      "priority": "high",
-      "rule": "In research mode use simulated_buy/simulated_sell with fill_price and amount_usd; never live buy/sell unless safety.trading_allowed."
-    },
-    {
-      "id": "self_critique_before_submit",
-      "priority": "high",
-      "rule": "Before POST /runs, ask whether each buy would still make sense without today's headline; include summary in self_critique."
-    },
-    {
-      "id": "run_budget_guardrails",
-      "priority": "high",
-      "rule": "Check usage_budget before deep news fetches; limit per-symbol news calls if budget tight."
-    }
-  ],
-  "data_sources": [
-    {
-      "name": "mta_api",
-      "type": "http",
-      "description": "MTA-Lab API for plan, context, logging, news import, and reconciliation."
-    },
-    {
-      "name": "robinhood_mcp",
-      "type": "mcp",
-      "url": "https://agent.robinhood.com/mcp/trading",
-      "tools": [
-        "get_portfolio",
-        "get_equity_positions",
-        "get_equity_quotes",
-        "get_equity_orders",
-        "get_earnings_results",
-        "get_earnings_calendar",
-        "review_equity_order",
-        "place_equity_order"
-      ]
-    }
-  ],
   "stop_conditions": [
     {
       "condition": "intervention_required",
       "action": "stop_or_hold_only",
-      "description": "When intervention_status.intervention_required is true, follow severity: critical → failed run; high → hold/skip only."
+      "description": "When intervention_status.intervention_required is true, follow severity: critical \u2192 failed run; high \u2192 hold/skip only."
     },
     {
       "condition": "context_or_plan_unavailable",
@@ -363,6 +287,28 @@
       "condition": "live_trading_not_allowed",
       "action": "research_only",
       "description": "Never call place_equity_order unless mode=live, trading_enabled, and kill_switch=false."
+    }
+  ],
+  "data_sources": [
+    {
+      "name": "mta_api",
+      "type": "http",
+      "description": "MTA-Lab API for plan, context, logging, news import, and reconciliation."
+    },
+    {
+      "name": "robinhood_mcp",
+      "type": "mcp",
+      "url": "https://agent.robinhood.com/mcp/trading",
+      "tools": [
+        "get_portfolio",
+        "get_equity_positions",
+        "get_equity_quotes",
+        "get_equity_orders",
+        "get_earnings_results",
+        "get_earnings_calendar",
+        "review_equity_order",
+        "place_equity_order"
+      ]
     }
   ]
 }

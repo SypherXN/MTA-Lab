@@ -291,21 +291,52 @@ def _load_plan_file(path) -> tuple[str, str, AgentPlanPayload, bool, str]:
     import json
     from pathlib import Path
 
-    raw = json.loads(Path(path).read_text(encoding="utf-8"))
-    version = str(raw.get("version") or Path(path).stem).strip()
+    path = Path(path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    version = str(raw.get("version") or path.stem).strip()
     if not version:
         raise ValueError(f"{path.name}: missing version")
     name = str(raw.get("name") or version).strip()
     make_active = bool(raw.get("is_active", False))
     change_source = str(raw.get("change_source") or "github").strip() or "github"
 
-    payload_data = raw.get("plan")
-    if payload_data is None:
-        payload_data = {
-            key: raw[key]
-            for key in ("run_order", "required_inputs", "scoring_rules", "data_sources", "stop_conditions")
-            if key in raw
-        }
+    extends = raw.get("extends")
+    base_data: dict = {}
+    if extends:
+        base_name = str(extends).strip()
+        if not base_name.endswith(".json"):
+            base_name = f"{base_name}.json"
+        base_path = path.parent / base_name
+        if not base_path.is_file():
+            raise FileNotFoundError(f"{path.name}: extends base not found: {base_path.name}")
+        base_data = json.loads(base_path.read_text(encoding="utf-8"))
+
+    section_keys = (
+        "run_order",
+        "required_inputs",
+        "scoring_rules",
+        "data_sources",
+        "stop_conditions",
+    )
+    payload_data: dict = {}
+    if raw.get("plan") is not None:
+        payload_data = dict(raw["plan"])
+    else:
+        for key in section_keys:
+            if key in base_data:
+                payload_data[key] = base_data[key]
+        for key in section_keys:
+            if key in raw:
+                payload_data[key] = raw[key]
+        if "scoring_rules_extra" in raw:
+            payload_data["scoring_rules"] = list(payload_data.get("scoring_rules") or []) + list(
+                raw["scoring_rules_extra"]
+            )
+        if "stop_conditions_extra" in raw:
+            payload_data["stop_conditions"] = list(payload_data.get("stop_conditions") or []) + list(
+                raw["stop_conditions_extra"]
+            )
+
     payload = AgentPlanPayload.model_validate(payload_data)
     return version, name, payload, make_active, change_source
 
@@ -325,6 +356,8 @@ def sync_agent_plans_from_directory(conn: sqlite3.Connection, directory):
     items: list[AgentPlanSyncItemOut] = []
 
     for path in sorted(root.glob("*.json")):
+        if path.name.startswith("_"):
+            continue
         try:
             version, name, payload, make_active, change_source = _load_plan_file(path)
             existed = (

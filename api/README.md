@@ -93,12 +93,9 @@ python scripts/seed_sample_run.py
 | GET | `/api/dashboard/portfolio` | Read* | Simulated portfolio (mark-to-market when quotes cached) |
 | GET | `/api/dashboard/portfolio/snapshots` | Read* | Portfolio equity snapshots (`since`, `until`, `run_id` filters) |
 | GET | `/api/dashboard/portfolio/snapshots/summary` | Read* | Snapshot aggregate stats (change, min/max) |
-| GET | `/api/dashboard/freshness` | Read* | Last-updated times per data source |
 | GET | `/api/dashboard/freshness/check` | Read* | Staleness evaluation with warnings and `ready_for_analysis` |
 | GET | `/api/dashboard/news` | Read* | Recent news/event summaries (`symbol` filter) |
 | GET | `/api/dashboard/timeline` | Read* | Unified activity timeline (runs, decisions, signals, orders) |
-| GET | `/api/automation/portfolio/snapshots` | Read* | Agent-facing snapshot history |
-| GET | `/api/automation/portfolio/snapshots/summary` | Read* | Agent-facing snapshot summary |
 | GET | `/api/automation/freshness/check` | Read* | Staleness evaluation with warnings and `ready_for_analysis` |
 | GET | `/api/automation/intervention/check` | Read* | Intervention triggers and recommended action |
 | GET | `/api/automation/market-inputs` | Read* | Standardized market input bundle checklist |
@@ -112,23 +109,17 @@ python scripts/seed_sample_run.py
 | GET | `/api/dashboard/usage` | Read* | Cursor usage rows |
 | GET | `/api/dashboard/usage/summary` | Read* | Cost aggregates by day, model, run type |
 | PATCH | `/api/dashboard/strategy` | Session/write* | Update mode, kill switch, trading enabled, caps |
-| GET | `/api/dashboard/preflight` | Read* | Live trading preflight checklist |
 | GET | `/api/dashboard/orders` | Read* | Synced Robinhood orders + link status |
 | GET | `/api/dashboard/reconciliation` | Read* | Order/decision reconciliation summary |
 | GET | `/api/dashboard/quotes` | Read* | Cached quote prices |
 | GET | `/api/dashboard/export` | Read* | CSV or JSON export (`format=csv|json`, `type=all|runs|decisions`) |
 | GET | `/api/dashboard/alerts` | Read* | Alert inbox (`status=open|acknowledged|resolved`) |
 | PATCH | `/api/dashboard/alerts/{id}` | Session/write* | Acknowledge or resolve an alert |
-| GET | `/api/dashboard/strategy/performance` | Read* | Performance by strategy version, action, confidence |
 | GET | `/api/dashboard/strategy/compare` | Read* | Compare strategy/plan versions (runs, trades, cost, equity) |
 | GET | `/api/dashboard/lanes` | Read* | List simulation lanes |
 | GET | `/api/dashboard/lanes/compare` | Read* | Head-to-head lane metrics (`lane_ids=1,2`) |
 | GET | `/api/dashboard/lanes/live-history` | Read* | Combined real-money history across live stints |
-| GET | `/api/dashboard/rollups` | Read* | Daily rollup history |
-| GET | `/api/dashboard/backtest/replay` | Read* | Replay decisions with alternate rules |
-| GET | `/api/dashboard/usage/budget` | Read* | Daily/monthly Cursor budget status |
 | GET | `/api/dashboard/status/mobile` | Read* | Compact mobile health snapshot |
-| GET | `/api/dashboard/db/snapshots` | Read* | Database size and row-count history |
 | POST | `/api/admin/cursor-usage/import` | `X-API-Key` | Backfill Cursor usage (auto-links `cursor_run_id`) |
 | POST | `/api/admin/portfolio/reset` | `X-API-Key` | Reset simulated cash/positions to defaults |
 | POST | `/api/admin/quotes/import` | `X-API-Key` | Upsert quote cache for portfolio marks |
@@ -140,7 +131,6 @@ python scripts/seed_sample_run.py
 | POST | `/api/admin/live-promotion/approve` | `X-API-Key` | Approve live promotion token → sets mode live + trading enabled |
 | POST | `/api/admin/retention/run` | `X-API-Key` | Prune old runs, snapshots, usage, resolved alerts |
 | POST | `/api/admin/maintenance/run` | `X-API-Key` | `ANALYZE` / `VACUUM` + record DB size snapshot |
-| POST | `/api/admin/rollups/run` | `X-API-Key` | Upsert daily rollups for recent days |
 | GET | `/api/admin/lanes` | `X-API-Key` | List simulation lanes |
 | POST | `/api/admin/lanes` | `X-API-Key` | Create simulation lane |
 | PATCH | `/api/admin/lanes/{id}` | `X-API-Key` | Update lane name/status/strategy/plan binding |

@@ -2,12 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.auth import ReadKeyDep, WriteKeyDep
 from app.database import get_connection
-from app.dashboard_service import (
-    get_dashboard_portfolio_snapshot_summary,
-    get_dashboard_portfolio_snapshots,
-)
-from app.freshness_service import evaluate_freshness, get_data_freshness
-from app.news_service import list_news_events
+from app.freshness_service import evaluate_freshness
 from app.news_service import ingest_news_events, list_news_events
 from app.symbol_discovery_service import build_symbol_discovery
 from app.symbol_proposal_service import list_symbol_proposals
@@ -41,15 +36,12 @@ from app.schemas import (
     StrategyUpdate,
     SymbolMemoryOut,
     DataFreshnessChecksOut,
-    DataSourceFreshnessOut,
     InterventionStatusOut,
     LivePromotionStatusOut,
     LaneTurnOut,
     MarketInputBundleOut,
     NewsEventOut,
     SymbolDiscoveryOut,
-    PortfolioSnapshotOut,
-    PortfolioSnapshotSummaryOut,
 )
 from app.services import (
     add_manual_note,
@@ -129,35 +121,6 @@ def automation_symbol_memory(symbol: str, lane_id: int | None = None) -> SymbolM
         conn.close()
 
 
-@router.get("/portfolio/snapshots", response_model=list[PortfolioSnapshotOut], dependencies=[ReadKeyDep])
-def automation_portfolio_snapshots(
-    limit: int = Query(default=100, ge=1, le=500),
-    since: str | None = None,
-    until: str | None = None,
-    run_id: int | None = None,
-    lane_id: int | None = None,
-) -> list[PortfolioSnapshotOut]:
-    conn = get_connection()
-    try:
-        return get_dashboard_portfolio_snapshots(
-            conn, limit=limit, since=since, until=until, run_id=run_id, lane_id=lane_id
-        )
-    finally:
-        conn.close()
-
-
-@router.get("/portfolio/snapshots/summary", response_model=PortfolioSnapshotSummaryOut, dependencies=[ReadKeyDep])
-def automation_portfolio_snapshot_summary(lane_id: int | None = None) -> PortfolioSnapshotSummaryOut:
-    conn = get_connection()
-    try:
-        summary = get_dashboard_portfolio_snapshot_summary(conn, lane_id=lane_id)
-        if summary is None:
-            raise HTTPException(status_code=404, detail="No portfolio snapshots recorded yet")
-        return summary
-    finally:
-        conn.close()
-
-
 @router.get(
     "/freshness/check",
     response_model=DataFreshnessChecksOut,
@@ -167,19 +130,6 @@ def automation_freshness_check() -> DataFreshnessChecksOut:
     conn = get_connection()
     try:
         return evaluate_freshness(conn)
-    finally:
-        conn.close()
-
-
-@router.get(
-    "/freshness",
-    response_model=list[DataSourceFreshnessOut],
-    dependencies=[ReadKeyDep],
-)
-def automation_freshness() -> list[DataSourceFreshnessOut]:
-    conn = get_connection()
-    try:
-        return get_data_freshness(conn)
     finally:
         conn.close()
 
