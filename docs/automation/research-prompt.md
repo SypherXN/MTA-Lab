@@ -45,9 +45,10 @@ Agent plan content is maintained in the GitHub repo under `plans/*.json` and syn
    - Only log trades on symbols in `allowed_symbols`; discovered names outside the pool are research-only and must not be traded.
    - Fetch symbol memory and (for v3) news for each extra symbol you analyze, same as watchlist names.
    - If discovery is disabled, skip this step.
-8. **News and event intake** (required)
-   - Read `recent_news` from context and `GET {API_BASE}/api/automation/news?symbol={SYMBOL}` per symbol when needed.
-   - When you find material headlines, earnings, or macro items from external sources, ingest summaries via `POST {API_BASE}/api/admin/news/import` (write key).
+8. **News and event intake** (required — shared pool)
+   - News is **global** for all lanes. Check `freshness_checks` for the `news` source first.
+   - If `news` is fresh (not stale, updated within ~6h), read `recent_news` from context and `GET {API_BASE}/api/automation/news?symbol={SYMBOL}` — **do not re-ingest** unless you found material headlines not already stored.
+   - If `news` is stale or missing, ingest summaries via `POST {API_BASE}/api/admin/news/import` (write key) before analyzing symbols. A VM cron (`ingest_news_rss.py`) or `mta-news` automation may have already run — still ingest anything new you find from Robinhood earnings MCP or web search.
    - Use news in `news` scores and `action_rationale`; do not trade on stale or missing news without noting the gap.
 9. For **each symbol** you will analyze, call `GET {API_BASE}/api/automation/symbols/{SYMBOL}/memory?lane_id={N}` (required).
    - Use prior decisions, cooldowns, position, P&L, notes, signals, and `recent_news` in your analysis.
