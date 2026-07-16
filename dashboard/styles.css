@@ -1904,6 +1904,71 @@ tbody tr {
   flex-wrap: wrap;
 }
 
+.activity-day-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.activity-day-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+  flex: 1;
+}
+
+.activity-day-btn {
+  min-width: 88px;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+}
+
+.activity-day-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.activity-hint {
+  margin: 10px 0 0;
+  font-size: 0.8rem;
+}
+
+.timeline-compact .timeline-item-compact {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.timeline-compact .timeline-item-compact::before,
+.timeline-compact .timeline-item-compact::after {
+  display: none;
+}
+
+.timeline-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+}
+
+.timeline-row .timeline-title {
+  font-weight: 600;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.timeline-row time {
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
 .chart-axis {
   stroke: #d6ded8;
 }

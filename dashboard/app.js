@@ -566,6 +566,89 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
+const activityData = { timeline: [], runs: [], decisions: [] };
+const activityDayPage = { timeline: 0, runs: 0, decisions: 0 };
+
+function parseActivityDay(iso) {
+  if (!iso) return "unknown";
+  const normalized = iso.includes("T") ? iso : iso.replace(" ", "T");
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return String(iso).slice(0, 10);
+  return date.toLocaleDateString("en-CA");
+}
+
+function formatActivityDayLabel(dayKey) {
+  if (dayKey === "unknown") return "Unknown date";
+  const date = new Date(`${dayKey}T12:00:00`);
+  return date.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatActivityTime(iso) {
+  if (!iso) return "—";
+  const normalized = iso.includes("T") ? iso : iso.replace(" ", "T");
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function groupRecordsByDay(records, field) {
+  const groups = new Map();
+  for (const record of records) {
+    const key = parseActivityDay(record[field]);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(record);
+  }
+  return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a));
+}
+
+function activityCountLabel(count, noun) {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+function renderActivityDayNav(section, dayGroups, items) {
+  const totalDays = dayGroups.length;
+  const page = totalDays ? Math.min(activityDayPage[section], totalDays - 1) : 0;
+  activityDayPage[section] = page;
+  const dayKey = dayGroups[page]?.[0];
+  const label = dayKey ? formatActivityDayLabel(dayKey) : "No data";
+  const nouns = { timeline: "event", runs: "run", decisions: "decision" };
+  const newerDisabled = page <= 0 ? "disabled" : "";
+  const olderDisabled = page >= totalDays - 1 ? "disabled" : "";
+  const pageHint =
+    totalDays > 1 ? `<span class="muted">· Day ${page + 1} of ${totalDays}</span>` : "";
+  return `
+    <div class="activity-day-nav">
+      <button type="button" class="activity-day-btn" data-day-nav="${section}" data-direction="older" ${olderDisabled}>← Older</button>
+      <div class="activity-day-label">
+        <strong>${escapeHtml(label)}</strong>
+        <span class="muted">${activityCountLabel(items.length, nouns[section])}</span>
+        ${pageHint}
+      </div>
+      <button type="button" class="activity-day-btn" data-day-nav="${section}" data-direction="newer" ${newerDisabled}>Newer →</button>
+    </div>
+  `;
+}
+
+function shiftActivityDayPage(section, direction, dayCount) {
+  if (dayCount <= 0) return;
+  if (direction === "newer" && activityDayPage[section] > 0) activityDayPage[section] -= 1;
+  if (direction === "older" && activityDayPage[section] < dayCount - 1) activityDayPage[section] += 1;
+}
+
+function bindActivityPanelLinks(container) {
+  container.querySelectorAll("[data-run-id]").forEach((btn) => {
+    btn.addEventListener("click", () => openRunModal(Number(btn.dataset.runId)));
+  });
+  container.querySelectorAll("[data-symbol]").forEach((btn) => {
+    btn.addEventListener("click", () => openSymbolModal(btn.dataset.symbol));
+  });
+}
+
 function renderPlanListTable(title, rows, columns) {
   if (!rows?.length) {
     return `<h3>${title}</h3><p class="muted">None configured.</p>`;
@@ -1222,36 +1305,42 @@ function timelineBadge(type) {
 }
 
 function renderTimeline(events) {
-  const rows = events
+  const dayGroups = groupRecordsByDay(events, "at");
+  const page = dayGroups.length
+    ? Math.min(activityDayPage.timeline, dayGroups.length - 1)
+    : 0;
+  activityDayPage.timeline = page;
+  const dayEvents = dayGroups[page]?.[1] || [];
+
+  const rows = dayEvents
     .map((event) => {
       const runLink =
         event.run_id != null
-          ? `<button type="button" class="link-btn" data-run-id="${event.run_id}">Run #${event.run_id}</button>`
+          ? `<button type="button" class="link-btn" data-run-id="${event.run_id}">#${event.run_id}</button>`
           : "";
       const symbolLink = event.symbol
         ? `<button type="button" class="link-btn" data-symbol="${event.symbol}">${event.symbol}</button>`
         : "";
       return `
-        <li class="timeline-item">
-          <div class="timeline-meta">
+        <li class="timeline-item timeline-item-compact">
+          <div class="timeline-row">
             <span class="${timelineBadge(event.event_type)}">${event.event_type}</span>
-            <time>${event.at}</time>
+            <time>${formatActivityTime(event.at)}</time>
+            <span class="timeline-title">${event.title}</span>
+            ${symbolLink}
+            ${runLink}
           </div>
-          <div class="timeline-title">${event.title} ${symbolLink} ${runLink}</div>
-          <div class="timeline-detail">${event.detail || ""}</div>
         </li>
       `;
     })
     .join("");
 
   const panel = document.getElementById("timeline-panel");
-  panel.innerHTML = `<ul class="timeline">${rows || "<li>No activity yet.</li>"}</ul>`;
-  panel.querySelectorAll("[data-run-id]").forEach((btn) => {
-    btn.addEventListener("click", () => openRunModal(Number(btn.dataset.runId)));
-  });
-  panel.querySelectorAll("[data-symbol]").forEach((btn) => {
-    btn.addEventListener("click", () => openSymbolModal(btn.dataset.symbol));
-  });
+  panel.innerHTML = `
+    ${renderActivityDayNav("timeline", dayGroups, dayEvents)}
+    <ul class="timeline timeline-compact">${rows || "<li class='muted'>No events on this day.</li>"}</ul>
+  `;
+  bindActivityPanelLinks(panel);
 }
 
 function renderOrders(orders) {
@@ -1287,31 +1376,37 @@ function renderOrders(orders) {
 }
 
 function renderRuns(runs) {
-  const rows = runs
+  const dayGroups = groupRecordsByDay(runs, "run_at");
+  const page = dayGroups.length ? Math.min(activityDayPage.runs, dayGroups.length - 1) : 0;
+  activityDayPage.runs = page;
+  const dayRuns = dayGroups[page]?.[1] || [];
+
+  const rows = dayRuns
     .map(
       (run) => `
         <tr class="clickable-row" data-run-id="${run.id}" title="View run #${run.id}">
-          <td>${run.run_at}</td>
-          <td>${run.automation_name || "—"}</td>
-          <td>${run.lane_name ? `${laneRoleBadge(run.lane_role || "research")} ${run.lane_name}` : "—"}</td>
-          <td>${run.run_type || "—"}</td>
-          <td><span class="${badgeClass(run.mode)}">${run.mode || "—"}</span></td>
+          <td>${formatActivityTime(run.run_at)}</td>
+          <td>${escapeHtml(run.automation_name || "—")}</td>
+          <td>${run.lane_name ? `${laneRoleBadge(run.lane_role || "research")} ${escapeHtml(run.lane_name)}` : "—"}</td>
+          <td>${escapeHtml(run.run_type || "—")}</td>
           <td>${run.status}</td>
-          <td>${run.budget_exceeded ? '<span class="warn">budget</span> ' : ""}${run.market_summary || "—"}</td>
+          <td>${run.budget_exceeded ? '<span class="warn">budget</span>' : ""}</td>
         </tr>
       `
     )
     .join("");
 
-  document.getElementById("runs-table-wrap").innerHTML = `
+  const wrap = document.getElementById("runs-table-wrap");
+  wrap.innerHTML = `
+    ${renderActivityDayNav("runs", dayGroups, dayRuns)}
     <table>
       <thead>
-        <tr><th>Run At</th><th>Automation</th><th>Lane</th><th>Run Type</th><th>Mode</th><th>Status</th><th>Summary</th></tr>
+        <tr><th>Time</th><th>Automation</th><th>Lane</th><th>Run type</th><th>Status</th><th></th></tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="7">No runs logged yet.</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="6">No runs on this day.</td></tr>`}</tbody>
     </table>
   `;
-  document.querySelectorAll("#runs-table-wrap [data-run-id]").forEach((row) => {
+  wrap.querySelectorAll("[data-run-id]").forEach((row) => {
     row.addEventListener("click", () => openRunModal(Number(row.dataset.runId)));
   });
 }
@@ -1545,34 +1640,40 @@ function renderDecisionLane(decision) {
 }
 
 function renderDecisions(decisions) {
-  const rows = decisions
+  const dayGroups = groupRecordsByDay(decisions, "created_at");
+  const page = dayGroups.length
+    ? Math.min(activityDayPage.decisions, dayGroups.length - 1)
+    : 0;
+  activityDayPage.decisions = page;
+  const dayDecisions = dayGroups[page]?.[1] || [];
+
+  const rows = dayDecisions
     .map(
       (decision) => `
         <tr>
-          <td>${decision.created_at}</td>
+          <td>${formatActivityTime(decision.created_at)}</td>
           <td>${renderDecisionLane(decision)}</td>
           <td><button type="button" class="link-btn" data-symbol="${decision.symbol}">${decision.symbol}</button></td>
           <td>${decision.action}</td>
           <td>${renderScoreBars(decision.scores)}</td>
           <td>${formatMoney(decision.amount_usd)}</td>
-          <td class="reason">${decision.reason}</td>
-          <td class="reason">${decision.action_rationale || "—"}</td>
         </tr>
       `
     )
     .join("");
 
-  document.getElementById("decisions-table-wrap").innerHTML = `
+  const wrap = document.getElementById("decisions-table-wrap");
+  wrap.innerHTML = `
+    ${renderActivityDayNav("decisions", dayGroups, dayDecisions)}
     <table>
       <thead>
-        <tr><th>Time</th><th>Lane</th><th>Symbol</th><th>Action</th><th>Explainability</th><th>Amount</th><th>Reason</th><th>Rationale</th></tr>
+        <tr><th>Time</th><th>Lane</th><th>Symbol</th><th>Action</th><th>Scores</th><th>Amount</th></tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="8">No decisions logged yet.</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="6">No decisions on this day.</td></tr>`}</tbody>
     </table>
+    <p class="muted activity-hint">Open a symbol or run for full reason and rationale.</p>
   `;
-  document.querySelectorAll("#decisions-table-wrap [data-symbol]").forEach((btn) => {
-    btn.addEventListener("click", () => openSymbolModal(btn.dataset.symbol));
-  });
+  bindActivityPanelLinks(wrap);
 }
 
 function renderUsage(usageRows) {
@@ -1750,6 +1851,12 @@ async function loadDashboard() {
     renderCostDashboard(usageSummary);
     renderFreshness(freshnessChecks);
     renderReconciliation(reconciliation);
+    activityData.timeline = timeline;
+    activityData.runs = runs;
+    activityData.decisions = decisions;
+    activityDayPage.timeline = 0;
+    activityDayPage.runs = 0;
+    activityDayPage.decisions = 0;
     renderTimeline(timeline);
     renderOrders(orders);
     renderRuns(runs);
@@ -1831,6 +1938,27 @@ async function bootstrap() {
     if (event.key === "Escape") {
       closeRunModal();
       closeSymbolModal();
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-day-nav]");
+    if (!btn) return;
+    const section = btn.dataset.dayNav;
+    const direction = btn.dataset.direction;
+    if (section === "timeline") {
+      shiftActivityDayPage("timeline", direction, groupRecordsByDay(activityData.timeline, "at").length);
+      renderTimeline(activityData.timeline);
+    } else if (section === "runs") {
+      shiftActivityDayPage("runs", direction, groupRecordsByDay(activityData.runs, "run_at").length);
+      renderRuns(activityData.runs);
+    } else if (section === "decisions") {
+      shiftActivityDayPage(
+        "decisions",
+        direction,
+        groupRecordsByDay(activityData.decisions, "created_at").length
+      );
+      renderDecisions(activityData.decisions);
     }
   });
 
