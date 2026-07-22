@@ -32,7 +32,11 @@ Pair with weekly **`mta-ticker-scout`** ([ticker-scout-prompt.md](./ticker-scout
    - If `lane_turn.granted` is **false**, exit with a short summary (sequential mode).
    - Confirm `symbol_discovery.enabled` is true. If false, analyze core watchlist only and note that scout/setup is needed.
 3. `GET {API_BASE}/api/automation/intervention/check`
-4. Robinhood MCP: `get_portfolio`, `get_equity_positions`, `get_equity_quotes` for **core watchlist + SPY + QQQ**, `get_equity_orders`
+4. Robinhood MCP: `get_portfolio`, `get_equity_positions`, `get_equity_quotes` for **core watchlist + SPY + QQQ + VIXY**, `get_equity_orders`
+4b. **Quote cache refresh** (required — before step 6)
+   - `POST {API_BASE}/api/admin/quotes/import` with **all** prices from step 4 (`X-API-Key: {WRITE_API_KEY}`).
+   - Include anchors, discovery picks, indices, and vol proxies you quoted.
+   - VM cron (`ingest_quotes.py`) may have run recently — still import MCP quotes every run.
 5. `POST {API_BASE}/api/admin/robinhood-orders/import`
 6. `GET {API_BASE}/api/automation/market-inputs?lane_id={EXPLORER_LANE_ID}`
 7. **Discovery (required)** — `GET {API_BASE}/api/automation/discovery/candidates?lane_id={EXPLORER_LANE_ID}`
