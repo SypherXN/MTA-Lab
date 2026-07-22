@@ -609,30 +609,44 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
             or payload.usage.input_tokens is not None
             or payload.usage.output_tokens is not None
         ):
-            from app.cursor_pricing import estimate_token_cost_usd
+            from app.cursor_pricing import build_usage_import_key, estimate_token_cost_usd
 
             estimated_cost = estimate_token_cost_usd(
                 payload.usage.model,
                 payload.usage.input_tokens,
                 payload.usage.output_tokens,
             )
-            conn.execute(
-                """
-                INSERT INTO cursor_usage (
-                    run_id, cursor_run_id, model, cost_usd, estimated_cost_usd,
-                    input_tokens, output_tokens, source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'automation_run')
-                """,
-                (
-                    run_id,
-                    payload.usage.cursor_run_id or payload.cursor_run_id,
-                    payload.usage.model,
-                    payload.usage.cost_usd,
-                    estimated_cost,
-                    payload.usage.input_tokens,
-                    payload.usage.output_tokens,
-                ),
+            import_key = build_usage_import_key(
+                cursor_run_id=payload.usage.cursor_run_id or payload.cursor_run_id,
+                timestamp=run_at,
+                model=payload.usage.model,
+                input_tokens=payload.usage.input_tokens,
+                output_tokens=payload.usage.output_tokens,
+                cost_usd=payload.usage.cost_usd,
             )
+            existing = conn.execute(
+                "SELECT 1 FROM cursor_usage WHERE usage_import_key = ?",
+                (import_key,),
+            ).fetchone()
+            if existing is None:
+                conn.execute(
+                    """
+                    INSERT INTO cursor_usage (
+                        run_id, cursor_run_id, model, cost_usd, estimated_cost_usd, usage_import_key,
+                        input_tokens, output_tokens, source
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'automation_run')
+                    """,
+                    (
+                        run_id,
+                        payload.usage.cursor_run_id or payload.cursor_run_id,
+                        payload.usage.model,
+                        payload.usage.cost_usd,
+                        estimated_cost,
+                        import_key,
+                        payload.usage.input_tokens,
+                        payload.usage.output_tokens,
+                    ),
+                )
 
         if status == RUN_STATUS_COMPLETED:
             consume_pending_market_signals(conn)

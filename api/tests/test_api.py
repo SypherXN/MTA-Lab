@@ -376,6 +376,35 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Fed meeting", response.json()["content"])
 
+    def test_cursor_usage_import_dedupes_on_reimport(self):
+        row = {
+            "cursor_run_id": "bc-dedupe-test",
+            "model": "composer-2.5",
+            "cost_usd": 0.0,
+            "estimated_cost_usd": 0.10,
+            "usage_import_key": "cloud:bc-dedupe-test|2026-07-22T14:05:00.902Z",
+            "input_tokens": 1000,
+            "output_tokens": 200,
+            "timestamp": "2026-07-22T14:05:00.902Z",
+        }
+        first = client.post(
+            "/api/admin/cursor-usage/import",
+            json={"rows": [row]},
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["inserted"], 1)
+        self.assertEqual(first.json()["skipped"], 0)
+
+        second = client.post(
+            "/api/admin/cursor-usage/import",
+            json={"rows": [row]},
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json()["inserted"], 0)
+        self.assertEqual(second.json()["skipped"], 1)
+
     def test_cursor_usage_import(self):
         response = client.post(
             "/api/admin/cursor-usage/import",

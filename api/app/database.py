@@ -199,6 +199,20 @@ def _migration_side_effects(conn: sqlite3.Connection, version: str) -> None:
             "estimated_cost_usd",
             "ALTER TABLE cursor_usage ADD COLUMN estimated_cost_usd REAL",
         )
+    elif version == "016_cursor_usage_import_key":
+        _ensure_column(
+            conn,
+            "cursor_usage",
+            "usage_import_key",
+            "ALTER TABLE cursor_usage ADD COLUMN usage_import_key TEXT",
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_cursor_usage_import_key
+            ON cursor_usage(usage_import_key)
+            WHERE usage_import_key IS NOT NULL
+            """
+        )
 
 
 def _apply_pending_migrations(conn: sqlite3.Connection) -> list[str]:

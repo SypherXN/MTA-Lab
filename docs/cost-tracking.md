@@ -56,6 +56,8 @@ python scripts/import_cursor_usage.py /path/to/usage-events.csv \
 
 3. Rows link to automation runs via `Cloud Agent ID` → `cursor_run_id` when the run logged the same id.
 
+**Re-imports are deduped automatically.** Each row gets a `usage_import_key` (`cloud:{id}|{timestamp}` for automations). Uploading the same CSV again — or overlapping exports — skips rows already stored and reports `skipped` in the API response.
+
 ## Admin endpoint
 
 `POST /api/admin/cursor-usage/import`

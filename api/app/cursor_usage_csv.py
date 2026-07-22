@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from app.cursor_pricing import estimate_token_cost_usd
+from app.cursor_pricing import build_usage_import_key, estimate_token_cost_usd
 
 AUTOMATION_HEADERS = frozenset({"Automation ID", "Cloud Agent ID"})
 USAGE_EVENTS_HEADERS = AUTOMATION_HEADERS | {
@@ -95,12 +95,14 @@ def parse_usage_row(row: dict[str, str], *, usage_events_format: bool) -> dict |
         if not is_automation_row(row):
             return None
         cursor_run_id = (_first_value(row, "Cloud Agent ID", "cloud_agent_id", "cursor_run_id") or "").strip() or None
+        automation_id = (_first_value(row, "Automation ID", "automation_id") or "").strip() or None
         model = _first_value(row, "Model", "model")
         timestamp = _first_value(row, "Date", "timestamp", "Timestamp")
         cost_usd = parse_cost_usd(_first_value(row, "Cost", "cost", "cost_usd", "charged"))
         input_tokens, output_tokens = _parse_tokens_usage_events(row)
     else:
         cursor_run_id = _first_value(row, "run_id", "Run ID", "cursor_run_id", "Cloud Agent ID")
+        automation_id = _first_value(row, "Automation ID", "automation_id")
         model = _first_value(row, "model", "Model")
         timestamp = _first_value(row, "timestamp", "Timestamp", "Date")
         cost_usd = parse_cost_usd(_first_value(row, "cost", "Cost", "cost_usd", "charged"))
@@ -110,12 +112,23 @@ def parse_usage_row(row: dict[str, str], *, usage_events_format: bool) -> dict |
         return None
 
     estimated_cost_usd = estimate_token_cost_usd(model, input_tokens, output_tokens)
+    billed = cost_usd if cost_usd is not None else 0.0
+    usage_import_key = build_usage_import_key(
+        cursor_run_id=cursor_run_id,
+        timestamp=timestamp,
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cost_usd=billed,
+        automation_id=automation_id,
+    )
 
     return {
         "cursor_run_id": cursor_run_id,
         "model": model,
-        "cost_usd": cost_usd if cost_usd is not None else 0.0,
+        "cost_usd": billed,
         "estimated_cost_usd": estimated_cost_usd,
+        "usage_import_key": usage_import_key,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "timestamp": timestamp,

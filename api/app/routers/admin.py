@@ -68,9 +68,9 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 def cursor_usage_import(payload: CursorUsageImportRequest) -> CursorUsageImportResponse:
     conn = get_connection()
     try:
-        inserted, linked = import_cursor_usage(conn, payload)
+        inserted, linked, skipped = import_cursor_usage(conn, payload)
         conn.commit()
-        return CursorUsageImportResponse(inserted=inserted, linked=linked)
+        return CursorUsageImportResponse(inserted=inserted, linked=linked, skipped=skipped)
     except Exception:
         conn.rollback()
         raise

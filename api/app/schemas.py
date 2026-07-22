@@ -473,6 +473,7 @@ class CursorUsageImportRow(BaseModel):
     model: str | None = None
     cost_usd: float
     estimated_cost_usd: float | None = None
+    usage_import_key: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
     timestamp: datetime | None = None
@@ -737,6 +738,7 @@ class QuoteOut(BaseModel):
 class CursorUsageImportResponse(BaseModel):
     inserted: int
     linked: int
+    skipped: int = 0
 
 
 class AgentPlanRunStepOut(BaseModel):

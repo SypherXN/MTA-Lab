@@ -18,7 +18,7 @@ from app.schemas import (
     QuoteOut,
     RunSummaryOut,
 )
-from app.cursor_pricing import effective_cost_usd, estimate_token_cost_usd
+from app.cursor_pricing import build_usage_import_key, effective_cost_usd, estimate_token_cost_usd
 from app.snapshot_service import get_portfolio_snapshot_summary, get_portfolio_snapshots
 
 EFFECTIVE_COST_SQL = "COALESCE(NULLIF(cost_usd, 0), estimated_cost_usd, 0)"
@@ -131,9 +131,10 @@ def _resolve_run_id(
     return int(row["id"]) if row else None
 
 
-def import_cursor_usage(conn: sqlite3.Connection, payload: CursorUsageImportRequest) -> tuple[int, int]:
+def import_cursor_usage(conn: sqlite3.Connection, payload: CursorUsageImportRequest) -> tuple[int, int, int]:
     inserted = 0
     linked = 0
+    skipped = 0
     for row in payload.rows:
         resolved_run_id = _resolve_run_id(conn, row.run_id, row.cursor_run_id)
         if resolved_run_id is not None and row.run_id is None:
@@ -141,12 +142,28 @@ def import_cursor_usage(conn: sqlite3.Connection, payload: CursorUsageImportRequ
         estimated_cost = row.estimated_cost_usd
         if estimated_cost is None:
             estimated_cost = estimate_token_cost_usd(row.model, row.input_tokens, row.output_tokens)
+        timestamp = (row.timestamp or datetime.now(timezone.utc)).isoformat()
+        import_key = row.usage_import_key or build_usage_import_key(
+            cursor_run_id=row.cursor_run_id,
+            timestamp=timestamp,
+            model=row.model,
+            input_tokens=row.input_tokens,
+            output_tokens=row.output_tokens,
+            cost_usd=row.cost_usd,
+        )
+        existing = conn.execute(
+            "SELECT 1 FROM cursor_usage WHERE usage_import_key = ?",
+            (import_key,),
+        ).fetchone()
+        if existing is not None:
+            skipped += 1
+            continue
         conn.execute(
             """
             INSERT INTO cursor_usage (
-                run_id, cursor_run_id, model, cost_usd, estimated_cost_usd, input_tokens, output_tokens,
-                source, reconciled_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'cursor_dashboard_csv', ?)
+                run_id, cursor_run_id, model, cost_usd, estimated_cost_usd, usage_import_key,
+                input_tokens, output_tokens, source, reconciled_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'cursor_dashboard_csv', ?)
             """,
             (
                 resolved_run_id,
@@ -154,9 +171,10 @@ def import_cursor_usage(conn: sqlite3.Connection, payload: CursorUsageImportRequ
                 row.model,
                 row.cost_usd,
                 estimated_cost,
+                import_key,
                 row.input_tokens,
                 row.output_tokens,
-                (row.timestamp or datetime.now(timezone.utc)).isoformat(),
+                timestamp,
             ),
         )
         inserted += 1
@@ -177,7 +195,7 @@ def import_cursor_usage(conn: sqlite3.Connection, payload: CursorUsageImportRequ
         from app.freshness_service import touch_data_source
 
         touch_data_source(conn, "cursor_usage", detail=f"{inserted} rows")
-    return inserted, linked
+    return inserted, linked, skipped
 
 def get_dashboard_usage(conn: sqlite3.Connection, limit: int = 50) -> list[CursorUsageOut]:
     return [

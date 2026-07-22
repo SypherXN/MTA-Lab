@@ -231,4 +231,8 @@ MIGRATIONS: dict[str, str] = {
         -- Applied via ALTER in Python when column missing; placeholder for tracking.
         SELECT 1;
     """,
+    "016_cursor_usage_import_key": """
+        -- Applied via ALTER in Python when column missing; placeholder for tracking.
+        SELECT 1;
+    """,
 }

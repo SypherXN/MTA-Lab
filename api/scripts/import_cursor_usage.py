@@ -43,6 +43,7 @@ def main() -> None:
             f"dry-run: would import {len(rows)} row(s) "
             f"(automations_only={args.automations_only}, estimated_total=${estimated_total:.2f})"
         )
+        print("Note: re-import skips rows already stored (deduped by usage_import_key on the API).")
         if rows[:3]:
             print(json.dumps(rows[:3], indent=2))
         return

@@ -74,3 +74,29 @@ def effective_cost_usd(billed_cost_usd: float | None, estimated_cost_usd: float 
     if billed > 0:
         return billed
     return float(estimated_cost_usd or 0)
+
+
+def build_usage_import_key(
+    *,
+    cursor_run_id: str | None,
+    timestamp: str | None,
+    model: str | None,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    cost_usd: float | None,
+    automation_id: str | None = None,
+) -> str:
+    """Stable dedupe key for CSV re-imports and automation run usage rows."""
+    cloud = (cursor_run_id or "").strip()
+    ts = (timestamp or "").strip()
+    if cloud:
+        return f"cloud:{cloud}|{ts}"
+    parts = [
+        ts,
+        (model or "").strip().lower(),
+        str(input_tokens or 0),
+        str(output_tokens or 0),
+        f"{float(cost_usd or 0):.6f}",
+        (automation_id or "").strip(),
+    ]
+    return "row:" + "|".join(parts)
