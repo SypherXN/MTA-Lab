@@ -32,8 +32,13 @@ Agent plan content is maintained in the GitHub repo under `plans/*.json` and syn
    - `get_equity_positions`
    - `get_equity_quotes` for the strategy watchlist **plus** index symbols (SPY, QQQ) and volatility proxies (VIX or VIXY when available)
    - `get_equity_orders` for recent history (sync below)
+5b. **Quote cache refresh** (required — do this **before** step 7)
+   - `POST {API_BASE}/api/admin/quotes/import` with **all** prices from step 5 (`X-API-Key: {WRITE_API_KEY}`).
+   - Include watchlist, discovery extras, indices, and vol proxies you quoted.
+   - This updates the shared cache so `freshness_checks.ready_for_analysis` and `market-inputs` reflect live MCP prices (quotes go stale after ~4h without an import).
+   - A VM cron (`ingest_quotes.py`) may have run recently — still import MCP quotes every run.
 6. `POST {API_BASE}/api/admin/robinhood-orders/import` with orders from MCP (reconciliation).
-   - Include all quotes from step 5 in the run `quotes[]` when logging (step 13).
+   - Include all quotes from step 5 in the run `quotes[]` when logging (step 14).
 7. `GET {API_BASE}/api/automation/market-inputs` (required)
    - Review the checklist: watchlist quotes, index state, orders synced, positions, freshness.
    - If `ready` is false, hold/skip only and explain missing items in `market_summary`.

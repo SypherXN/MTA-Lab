@@ -6,6 +6,7 @@ Run separate Cursor Automations instead of one large all-purpose job. Each sched
 
 | Automation | Cadence | `run_type` | Purpose |
 |------------|---------|------------|---------|
+| _(VM cron)_ | Weekdays every 30 min | _(none — ingest only)_ | `ingest_quotes.py` → shared quote cache (see [quotes-ingestion-setup.md](./quotes-ingestion-setup.md)) |
 | `mta-news` | Weekdays ~6:00 AM local (before research) | _(none — ingest only)_ | Shared headlines + earnings → `POST /api/admin/news/import` |
 | `mta-daily-research` | Weekdays ~30 min after open | `daily_research` | Full research run: plan, context, market inputs, news, symbol memory, decisions |
 | `mta-intraday-watch` | Hourly during market hours | `signal_response` | Lightweight watchlist check when `check_needed` signals exist |
@@ -34,5 +35,6 @@ Run separate Cursor Automations instead of one large all-purpose job. Each sched
 ## Related
 
 - [research-prompt.md](./research-prompt.md) — run types table
+- [quotes-ingestion-setup.md](./quotes-ingestion-setup.md) — VM quote cron + agent import step
 - [news-ingestion-setup.md](./news-ingestion-setup.md) — VM RSS cron + `mta-news`
 - [intervention-protocol.md](../intervention-protocol.md)

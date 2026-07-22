@@ -71,5 +71,6 @@ Lane 3 (news-event) still needs catalysts in the store — the cron + `mta-news`
 
 ## Related
 
+- [quotes-ingestion-setup.md](./quotes-ingestion-setup.md) — shared quote cache (separate cron)
 - [multi-lane-simulation.md](./multi-lane-simulation.md) — shared quote cache + news
 - [research-prompt.md](./research-prompt.md)

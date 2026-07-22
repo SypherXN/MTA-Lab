@@ -69,7 +69,7 @@
     {
       "step": 10,
       "action": "analyze",
-      "description": "Analyze each watchlist/allowed symbol using market inputs, symbol memory, strategy rules, and history.",
+      "description": "Balanced analysis: consider simulated_buy when entry thresholds are met (see scoring_rules_extra). Otherwise hold. Use market inputs, symbol memory, news, and history.",
       "required": true
     },
     {
@@ -94,6 +94,21 @@
   ],
   "scoring_rules_extra": [
     {
+      "id": "explicit_entry_thresholds",
+      "priority": "critical",
+      "rule": "simulated_buy is allowed when freshness_checks.ready_for_analysis is true, intervention severity is not high/critical, technical >= 0.58, confidence >= 0.55, and at least one confirmation: (a) SPY or QQQ positive vs prior close, (b) news score >= 0.55 with a named headline in action_rationale, or (c) symbol is a clear relative-strength leader vs QQQ today. Size $200–$350 per entry; max 2 new simulated_buy per run when the lane book is all cash."
+    },
+    {
+      "id": "inaugural_book_discipline",
+      "priority": "high",
+      "rule": "When simulated cash is fully unallocated (no positions), do not stay 100% cash through multiple consecutive risk-on sessions — deploy 1–2 core positions (broad index ETF and/or highest-conviction name) when entry thresholds are met."
+    },
+    {
+      "id": "index_context",
+      "priority": "high",
+      "rule": "Do not open new long simulated positions when both SPY and QQQ are clearly negative vs prior close unless a symbol-specific catalyst (news >= 0.55 with named headline) overrides."
+    },
+    {
       "id": "use_news_context",
       "priority": "high",
       "rule": "Review recent_news and symbol memory news before scoring news component; cite headlines in action_rationale when material."
@@ -106,7 +121,7 @@
     {
       "id": "prefer_hold_when_uncertain",
       "priority": "medium",
-      "rule": "When data is missing, ambiguous, or conflicting, choose hold or skip."
+      "rule": "Choose hold or skip only when required inputs are missing/stale, intervention is high/critical, scores conflict, macro event risk is extreme (e.g. CPI/FOMC with hostile tape), or confidence < 0.55. Do not use vague uncertainty to override met entry thresholds."
     },
     {
       "id": "cost_aware_routing",

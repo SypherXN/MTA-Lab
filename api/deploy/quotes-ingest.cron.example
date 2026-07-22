@@ -1,0 +1,6 @@
+# MTA-Lab: keep quote cache fresh for freshness_checks (max age 240m).
+# Run every 30 minutes on weekdays; adjust timezone as needed.
+*/30 * * * 1-5 cd /home/ubuntu/MTA-Lab/api && .venv/bin/python3 scripts/ingest_quotes.py >> data/quotes-ingest.log 2>&1
+
+# Extra pull before premarket / news / research (12:30 UTC ≈ 5:30 AM Pacific PDT)
+30 12 * * 1-5 cd /home/ubuntu/MTA-Lab/api && .venv/bin/python3 scripts/ingest_quotes.py --skip-if-fresh-minutes 0 >> data/quotes-ingest.log 2>&1
