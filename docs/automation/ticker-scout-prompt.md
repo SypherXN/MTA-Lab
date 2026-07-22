@@ -65,6 +65,26 @@ When using **ticker exploration** ([ticker-exploration-setup.md](./ticker-explor
 
 6. Summarize proposed / auto-promoted / skipped. Do not place trades.
 
+7. **Log the scout run** (required for cost tracking):
+
+```json
+POST {API_BASE}/api/automation/runs
+{
+  "automation_name": "mta-ticker-scout",
+  "run_type": "reconciliation_only",
+  "cursor_run_id": "bc-… (required — Cloud Agent ID from this run)",
+  "usage": {
+    "model": "composer-2.5",
+    "cursor_run_id": "bc-… (same as above)",
+    "cost_usd": null,
+    "input_tokens": null,
+    "output_tokens": null
+  },
+  "market_summary": "Scout: proposed 12 symbols; auto-promoted 6 to discovery pool.",
+  "decisions": []
+}
+```
+
 ## Manual review (optional)
 
 ```bash

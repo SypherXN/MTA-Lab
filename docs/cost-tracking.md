@@ -58,6 +58,16 @@ python scripts/import_cursor_usage.py /path/to/usage-events.csv \
 
 **Re-imports are deduped automatically.** Each row gets a `usage_import_key` (`cloud:{id}|{timestamp}` for automations). Uploading the same CSV again — or overlapping exports — skips rows already stored and reports `skipped` in the API response.
 
+After import, the API runs a **relink** pass: exact `cursor_run_id` match, time-based fuzzy match for `mta-explorer` / `mta-ticker-scout`, and optional backfill of scout runs from Sunday usage. Manual relink:
+
+```bash
+curl -X POST https://your-api/api/admin/cursor-usage/relink -H "X-API-Key: YOUR_WRITE_KEY"
+```
+
+Or: `python3 api/scripts/relink_cursor_usage.py`
+
+Automations must log `cursor_run_id` on `POST /api/automation/runs` (see research / explorer / scout prompts) for reliable lane attribution.
+
 ## Admin endpoint
 
 `POST /api/admin/cursor-usage/import`

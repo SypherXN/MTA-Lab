@@ -19,6 +19,7 @@ from app.schemas import (
     RunSummaryOut,
 )
 from app.cursor_pricing import build_usage_import_key, effective_cost_usd, estimate_token_cost_usd
+from app.usage_relink_service import UsageRelinkResult, relink_cursor_usage
 from app.snapshot_service import get_portfolio_snapshot_summary, get_portfolio_snapshots
 
 EFFECTIVE_COST_SQL = "COALESCE(NULLIF(cost_usd, 0), estimated_cost_usd, 0)"
@@ -131,14 +132,11 @@ def _resolve_run_id(
     return int(row["id"]) if row else None
 
 
-def import_cursor_usage(conn: sqlite3.Connection, payload: CursorUsageImportRequest) -> tuple[int, int, int]:
+def import_cursor_usage(conn: sqlite3.Connection, payload: CursorUsageImportRequest) -> tuple[int, int, int, UsageRelinkResult]:
     inserted = 0
-    linked = 0
     skipped = 0
     for row in payload.rows:
         resolved_run_id = _resolve_run_id(conn, row.run_id, row.cursor_run_id)
-        if resolved_run_id is not None and row.run_id is None:
-            linked += 1
         estimated_cost = row.estimated_cost_usd
         if estimated_cost is None:
             estimated_cost = estimate_token_cost_usd(row.model, row.input_tokens, row.output_tokens)
@@ -179,23 +177,15 @@ def import_cursor_usage(conn: sqlite3.Connection, payload: CursorUsageImportRequ
         )
         inserted += 1
 
-    relink = conn.execute(
-        """
-        UPDATE cursor_usage
-        SET run_id = (
-            SELECT r.id FROM automation_runs r
-            WHERE r.cursor_run_id = cursor_usage.cursor_run_id
-            LIMIT 1
-        )
-        WHERE run_id IS NULL AND cursor_run_id IS NOT NULL
-        """
+    relink_result = relink_cursor_usage(conn)
+    linked = int(
+        conn.execute("SELECT COUNT(*) AS c FROM cursor_usage WHERE run_id IS NOT NULL").fetchone()["c"]
     )
-    linked += relink.rowcount
     if inserted:
         from app.freshness_service import touch_data_source
 
         touch_data_source(conn, "cursor_usage", detail=f"{inserted} rows")
-    return inserted, linked, skipped
+    return inserted, linked, skipped, relink_result
 
 def get_dashboard_usage(conn: sqlite3.Connection, limit: int = 50) -> list[CursorUsageOut]:
     return [

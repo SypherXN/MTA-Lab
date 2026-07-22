@@ -766,6 +766,15 @@ class CursorUsageImportResponse(BaseModel):
     inserted: int
     linked: int
     skipped: int = 0
+    relinked: "UsageRelinkOut | None" = None
+
+
+class UsageRelinkOut(BaseModel):
+    exact_usage_linked: int = 0
+    fuzzy_usage_linked: int = 0
+    runs_cursor_run_id_backfilled: int = 0
+    scout_runs_created: int = 0
+    remaining_unlinked: int = 0
 
 
 class AgentPlanRunStepOut(BaseModel):

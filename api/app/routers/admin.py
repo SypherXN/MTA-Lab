@@ -27,7 +27,7 @@ from app.schemas import (
     RetentionRunRequest,
     RobinhoodOrderImportRequest,
     RobinhoodOrderImportResponse,
-    WebhookIngestResponse,
+    UsageRelinkOut,
     LaneCreate,
     LaneOut,
     LanePromoteRequest,
@@ -41,6 +41,7 @@ from app.schemas import (
     SymbolProposalPromoteRequest,
     SymbolProposalPromoteResponse,
     SymbolProposalAutoPromoteRequest,
+    WebhookIngestResponse,
 )
 
 from app.lane_service import (
@@ -60,6 +61,7 @@ from app.symbol_proposal_service import (
 )
 from app.services import reset_simulated_portfolio
 from app.config import settings
+from app.usage_relink_service import relink_cursor_usage
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -68,9 +70,40 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 def cursor_usage_import(payload: CursorUsageImportRequest) -> CursorUsageImportResponse:
     conn = get_connection()
     try:
-        inserted, linked, skipped = import_cursor_usage(conn, payload)
+        inserted, linked, skipped, relink = import_cursor_usage(conn, payload)
         conn.commit()
-        return CursorUsageImportResponse(inserted=inserted, linked=linked, skipped=skipped)
+        return CursorUsageImportResponse(
+            inserted=inserted,
+            linked=linked,
+            skipped=skipped,
+            relinked=UsageRelinkOut(
+                exact_usage_linked=relink.exact_usage_linked,
+                fuzzy_usage_linked=relink.fuzzy_usage_linked,
+                runs_cursor_run_id_backfilled=relink.runs_cursor_run_id_backfilled,
+                scout_runs_created=relink.scout_runs_created,
+                remaining_unlinked=relink.remaining_unlinked,
+            ),
+        )
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post("/cursor-usage/relink", response_model=UsageRelinkOut, dependencies=[WriteKeyDep])
+def cursor_usage_relink() -> UsageRelinkOut:
+    conn = get_connection()
+    try:
+        result = relink_cursor_usage(conn)
+        conn.commit()
+        return UsageRelinkOut(
+            exact_usage_linked=result.exact_usage_linked,
+            fuzzy_usage_linked=result.fuzzy_usage_linked,
+            runs_cursor_run_id_backfilled=result.runs_cursor_run_id_backfilled,
+            scout_runs_created=result.scout_runs_created,
+            remaining_unlinked=result.remaining_unlinked,
+        )
     except Exception:
         conn.rollback()
         raise

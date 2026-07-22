@@ -153,9 +153,10 @@ Use these action values in the POST body:
   "market_summary": "One paragraph on market conditions.",
   "self_critique": "Checked strategy/safety/cooldowns/freshness/memory; all holds appropriate.",
   "buying_power": 0,
-  "cursor_run_id": "if visible",
+  "cursor_run_id": "bc-… (required — Cloud Agent ID from this run)",
   "usage": {
     "model": "composer-2.5",
+    "cursor_run_id": "bc-… (same as above)",
     "cost_usd": null,
     "input_tokens": null,
     "output_tokens": null
@@ -194,7 +195,7 @@ If the run cannot complete (API unreachable, MCP error, safety violation before 
 ```json
 {
   "status": "failed",
-  "cursor_run_id": "if visible",
+  "cursor_run_id": "bc-… (required — Cloud Agent ID from this run)",
   "errors": ["Short reason the run aborted"],
   "market_summary": "Optional one-line context",
   "decisions": []

@@ -61,6 +61,14 @@ Pair with weekly **`mta-ticker-scout`** ([ticker-scout-prompt.md](./ticker-scout
   "automation_name": "mta-explorer",
   "run_type": "daily_research",
   "lane_id": 4,
+  "cursor_run_id": "bc-… (required — Cloud Agent ID from this run)",
+  "usage": {
+    "model": "composer-2.5",
+    "cursor_run_id": "bc-… (same as above)",
+    "cost_usd": null,
+    "input_tokens": null,
+    "output_tokens": null
+  },
   "market_summary": "Indices firm; researched 2 anchors + 6 discovery names from pool.",
   "self_critique": "Discovery within max_per_run; all trades on allowed_symbols; paper only.",
   "decisions": [
@@ -88,6 +96,7 @@ Pair with weekly **`mta-ticker-scout`** ([ticker-scout-prompt.md](./ticker-scout
 
 ## Safety rules (binding)
 
+- **Always** include `cursor_run_id` and `usage` on `POST /api/automation/runs` so CSV usage imports link to this lane.
 - **Paper only** on this lane — use `simulated_buy` / `simulated_sell` only.
 - Never `place_equity_order` unless `safety.trading_allowed` is true (should not happen on explorer).
 - Respect `allowed_symbols`, caps, and cooldowns.
