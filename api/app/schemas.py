@@ -335,6 +335,27 @@ class UsageBreakdownOut(BaseModel):
     row_count: int
 
 
+class UsagePeriodOut(BaseModel):
+    """Effective automation spend for a calendar or rolling window."""
+
+    cost_usd: float
+    row_count: int
+    run_count: int
+    days_with_data: int
+    avg_per_day_usd: float | None = None
+    cost_per_run_usd: float | None = None
+
+
+class UsageProjectionsOut(BaseModel):
+    """Forward-looking estimates from recent daily spend."""
+
+    avg_daily_usd: float
+    projected_weekly_usd: float
+    projected_monthly_usd: float
+    active_lane_count: int
+    projected_weekly_per_lane_usd: float | None = None
+
+
 class UsageSummaryOut(BaseModel):
     total_cost_usd: float
     total_estimated_cost_usd: float = 0.0
@@ -343,9 +364,15 @@ class UsageSummaryOut(BaseModel):
     total_decisions: int
     cost_per_decision: float | None = None
     estimated_cost_per_decision: float | None = None
+    last_7_days: UsagePeriodOut | None = None
+    last_30_days: UsagePeriodOut | None = None
+    this_week: UsagePeriodOut | None = None
+    this_month: UsagePeriodOut | None = None
+    projections: UsageProjectionsOut | None = None
     by_day: list[UsageDayOut] = Field(default_factory=list)
     by_model: list[UsageBreakdownOut] = Field(default_factory=list)
     by_run_type: list[UsageBreakdownOut] = Field(default_factory=list)
+    by_lane: list[UsageBreakdownOut] = Field(default_factory=list)
 
 
 class AutomationContextOut(BaseModel):

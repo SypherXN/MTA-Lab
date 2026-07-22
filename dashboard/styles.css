@@ -109,6 +109,31 @@ main {
   margin-top: 16px;
 }
 
+.cost-period-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.cost-period-card {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+}
+
+.cost-period-card strong {
+  display: block;
+  font-size: 1.15rem;
+  margin-top: 4px;
+}
+
+.cost-period-card span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .safety-form label,
 .control-form label {
   display: block;

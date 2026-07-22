@@ -1403,6 +1403,9 @@ class PriorityGroupBatch2Tests(unittest.TestCase):
         self.assertIn("total_estimated_cost_usd", summary)
         self.assertIn("by_model", summary)
         self.assertIn("by_run_type", summary)
+        self.assertIn("last_7_days", summary)
+        self.assertIn("this_month", summary)
+        self.assertIn("projections", summary)
 
         updated = client.patch(
             "/api/dashboard/strategy",

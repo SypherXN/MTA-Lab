@@ -1063,6 +1063,25 @@ function renderSafetyControls(context) {
   });
 }
 
+function renderCostPeriodCard(label, period) {
+  if (!period) return "";
+  const detail = [
+    period.row_count != null ? `${period.row_count} rows` : null,
+    period.run_count != null ? `${period.run_count} runs` : null,
+    period.cost_per_run_usd != null ? `${formatMoney(period.cost_per_run_usd)}/run` : null,
+    period.avg_per_day_usd != null ? `${formatMoney(period.avg_per_day_usd)}/day` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return `
+    <div class="cost-period-card">
+      <span>${label}</span>
+      <strong>${formatMoney(period.cost_usd)}</strong>
+      ${detail ? `<span>${detail}</span>` : ""}
+    </div>
+  `;
+}
+
 function renderCostDashboard(summary) {
   if (!summary) {
     document.getElementById("cost-dashboard-panel").innerHTML = "<p>No usage data yet.</p>";
@@ -1091,6 +1110,34 @@ function renderCostDashboard(summary) {
   const runTypeRows = (summary.by_run_type || [])
     .map((row) => `<tr><td>${row.key}</td><td>${formatMoney(row.cost_usd)}</td><td>${row.row_count}</td></tr>`)
     .join("");
+  const laneRows = (summary.by_lane || [])
+    .map((row) => `<tr><td>${row.key}</td><td>${formatMoney(row.cost_usd)}</td><td>${row.row_count}</td></tr>`)
+    .join("");
+
+  const projections = summary.projections;
+  const projectionHtml = projections
+    ? `<div class="cost-period-grid">
+        <div class="cost-period-card">
+          <span>Projected weekly (all automations)</span>
+          <strong>${formatMoney(projections.projected_weekly_usd)}</strong>
+          <span>${formatMoney(projections.avg_daily_usd)}/day avg · ${projections.active_lane_count} active lanes</span>
+        </div>
+        <div class="cost-period-card">
+          <span>Projected monthly (all automations)</span>
+          <strong>${formatMoney(projections.projected_monthly_usd)}</strong>
+          <span>Based on trailing 7-day daily average</span>
+        </div>
+        ${
+          projections.projected_weekly_per_lane_usd != null
+            ? `<div class="cost-period-card">
+                <span>Projected weekly per lane</span>
+                <strong>${formatMoney(projections.projected_weekly_per_lane_usd)}</strong>
+                <span>Even split across ${projections.active_lane_count} lanes</span>
+              </div>`
+            : ""
+        }
+      </div>`
+    : "";
 
   document.getElementById("cost-dashboard-panel").innerHTML = `
     <div class="equity-curve-meta">
@@ -1100,6 +1147,13 @@ function renderCostDashboard(summary) {
       <span>${summary.usage_row_count} usage rows</span>
       <span>Cost/decision: ${summary.estimated_cost_per_decision != null ? formatMoney(summary.estimated_cost_per_decision) : summary.cost_per_decision != null ? formatMoney(summary.cost_per_decision) : "—"}</span>
     </div>
+    <div class="cost-period-grid">
+      ${renderCostPeriodCard("This week", summary.this_week)}
+      ${renderCostPeriodCard("This month", summary.this_month)}
+      ${renderCostPeriodCard("Last 7 days", summary.last_7_days)}
+      ${renderCostPeriodCard("Last 30 days", summary.last_30_days)}
+    </div>
+    ${projectionHtml}
     ${
       days.length
         ? `<svg class="equity-curve-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Cursor cost over time">
@@ -1108,6 +1162,10 @@ function renderCostDashboard(summary) {
         : "<p class='muted'>No daily cost data yet.</p>"
     }
     <div class="cost-breakdown-grid">
+      <div>
+        <h3>By lane</h3>
+        <table><thead><tr><th>Lane</th><th>Cost</th><th>Rows</th></tr></thead><tbody>${laneRows || "<tr><td colspan='3'>—</td></tr>"}</tbody></table>
+      </div>
       <div>
         <h3>By model</h3>
         <table><thead><tr><th>Model</th><th>Cost</th><th>Rows</th></tr></thead><tbody>${modelRows || "<tr><td colspan='3'>—</td></tr>"}</tbody></table>

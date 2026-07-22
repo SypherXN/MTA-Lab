@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 from app.config import settings
+from app.dashboard_service import EFFECTIVE_COST_SQL
 from app.run_constants import DEFAULT_RUN_TYPE, VALID_RUN_TYPES
 from app.schemas import RunBudgetCheckOut, UsageBudgetOut
 
@@ -50,8 +51,8 @@ def expected_tokens_for_run_type(run_type: str | None) -> int:
 
 def get_usage_budget(conn: sqlite3.Connection) -> UsageBudgetOut:
     daily_spent = conn.execute(
-        """
-        SELECT COALESCE(SUM(cost_usd), 0) AS total
+        f"""
+        SELECT COALESCE(SUM({EFFECTIVE_COST_SQL}), 0) AS total
         FROM cursor_usage
         WHERE datetime(reconciled_at) >= datetime(?)
         """,
@@ -59,8 +60,8 @@ def get_usage_budget(conn: sqlite3.Connection) -> UsageBudgetOut:
     ).fetchone()["total"]
 
     monthly_spent = conn.execute(
-        """
-        SELECT COALESCE(SUM(cost_usd), 0) AS total
+        f"""
+        SELECT COALESCE(SUM({EFFECTIVE_COST_SQL}), 0) AS total
         FROM cursor_usage
         WHERE datetime(reconciled_at) >= datetime(?)
         """,

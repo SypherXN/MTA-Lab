@@ -79,7 +79,7 @@ Requires `X-API-Key`. Accepts:
 }
 ```
 
-Dashboard stats aggregate billed `cost_usd` and imputed `estimated_cost_usd` into **effective cost** (`billed` when present, otherwise token estimate). The **Cost Dashboard** shows effective totals, daily spend, and breakdowns by model and run type.
+Dashboard stats aggregate billed `cost_usd` and imputed `estimated_cost_usd` into **effective cost** (`billed` when present, otherwise token estimate). The **Cost Dashboard** shows effective totals, daily spend, period rollups (this week/month, last 7/30 days), forward projections (weekly/monthly for all active lanes), and breakdowns by lane, model, and run type.
 
 ## Token-based effective cost (Included rows)
 
