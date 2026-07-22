@@ -187,9 +187,7 @@ CREATE TABLE IF NOT EXISTS reconciliation_alerts_sent (
 
 CREATE INDEX IF NOT EXISTS idx_reconciliation_alerts_key ON reconciliation_alerts_sent(alert_key, sent_at);
 CREATE INDEX IF NOT EXISTS idx_cursor_usage_cursor_run_id ON cursor_usage(cursor_run_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_cursor_usage_import_key
-    ON cursor_usage(usage_import_key)
-    WHERE usage_import_key IS NOT NULL;
+-- idx_cursor_usage_import_key is created by migration 016 (existing DBs lack the column until then).
 
 CREATE TABLE IF NOT EXISTS agent_plans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
