@@ -20,19 +20,41 @@ This is stored on the run (`usage_json`) and in the `cursor_usage` table when `c
 
 ## 2. Dashboard CSV reconciliation
 
-Cursor billing is often split across multiple events per automation run. To backfill exact costs:
+Cursor billing is often split across multiple events per automation run. Automation rows in the usage-events export use a different CSV shape than IDE chat rows.
+
+**Automation rows** have `Cloud Agent ID` (`bc-…`) and `Automation ID` populated. **IDE rows** leave those columns blank. Costs may show as `Included` (subscription pool) rather than a dollar amount.
+
+To backfill automation usage:
 
 1. Export usage CSV from [cursor.com/dashboard/usage](https://cursor.com/dashboard/usage)
-2. Run:
+2. Run (defaults to **automations only**):
 
 ```bash
 cd api
-python scripts/import_cursor_usage.py /path/to/usage.csv \
+python scripts/import_cursor_usage.py /path/to/usage-events.csv \
   --api-url https://your-api.example.com \
   --api-key YOUR_WRITE_KEY
 ```
 
-3. Match rows to automation runs by timestamp and `cursor_run_id` where possible
+Dry-run first:
+
+```bash
+python scripts/import_cursor_usage.py /path/to/usage-events.csv \
+  --api-url https://your-api.example.com \
+  --api-key YOUR_WRITE_KEY \
+  --dry-run
+```
+
+Import IDE + automation rows:
+
+```bash
+python scripts/import_cursor_usage.py /path/to/usage-events.csv \
+  --api-url https://your-api.example.com \
+  --api-key YOUR_WRITE_KEY \
+  --no-automations-only
+```
+
+3. Rows link to automation runs via `Cloud Agent ID` → `cursor_run_id` when the run logged the same id.
 
 ## Admin endpoint
 

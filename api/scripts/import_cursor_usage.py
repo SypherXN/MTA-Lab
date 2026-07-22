@@ -4,10 +4,15 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
+import sys
 from pathlib import Path
 from urllib import error, request
+
+API_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(API_ROOT))
+
+from app.cursor_usage_csv import load_cursor_usage_csv  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -15,39 +20,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("csv_path", type=Path, help="Cursor dashboard usage CSV export")
     parser.add_argument("--api-url", required=True, help="Base URL of MTA-Lab API")
     parser.add_argument("--api-key", required=True, help="MTA write API key")
+    parser.add_argument(
+        "--automations-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Import only automation rows (Cloud Agent ID / Automation ID present). Default: true.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Parse and print row count without posting to the API.",
+    )
     return parser.parse_args()
-
-
-def load_rows(csv_path: Path) -> list[dict]:
-    rows: list[dict] = []
-    with csv_path.open(newline="", encoding="utf-8-sig") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            cost = row.get("cost") or row.get("Cost") or row.get("cost_usd") or row.get("charged")
-            if cost in (None, ""):
-                continue
-            rows.append(
-                {
-                    "cursor_run_id": row.get("run_id") or row.get("Run ID") or row.get("cursor_run_id"),
-                    "model": row.get("model") or row.get("Model"),
-                    "cost_usd": float(str(cost).replace("$", "")),
-                    "input_tokens": _maybe_int(row.get("input_tokens") or row.get("Input Tokens")),
-                    "output_tokens": _maybe_int(row.get("output_tokens") or row.get("Output Tokens")),
-                    "timestamp": row.get("timestamp") or row.get("Timestamp"),
-                }
-            )
-    return rows
-
-
-def _maybe_int(value: str | None) -> int | None:
-    if value in (None, ""):
-        return None
-    return int(float(value))
 
 
 def main() -> None:
     args = parse_args()
-    payload = {"rows": load_rows(args.csv_path)}
+    rows = load_cursor_usage_csv(args.csv_path, automations_only=args.automations_only)
+    if args.dry_run:
+        print(f"dry-run: would import {len(rows)} row(s) (automations_only={args.automations_only})")
+        if rows[:3]:
+            print(json.dumps(rows[:3], indent=2))
+        return
+
+    if not rows:
+        print("No matching usage rows found.", file=sys.stderr)
+        raise SystemExit(1)
+
+    payload = {"rows": rows}
     url = args.api_url.rstrip("/") + "/api/admin/cursor-usage/import"
     req = request.Request(
         url,
