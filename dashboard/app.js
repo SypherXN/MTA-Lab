@@ -812,7 +812,7 @@ function renderAgentPlansPanel(lanes) {
 
 // Distinct hues per lane (colorblind-friendly on the green dashboard background).
 const LANE_CHART_PALETTE = [
-  "#1e6f4a", // lane 1 — forest green (theme anchor)
+  "#1e6f4a", // lane 1 — forest green
   "#1d4ed8", // lane 2 — blue
   "#c2410c", // lane 3 — orange
   "#7c3aed", // lane 4 — violet
@@ -820,21 +820,11 @@ const LANE_CHART_PALETTE = [
   "#be185d", // lane 6 — rose
 ];
 
-const LANE_CHART_DASHES = ["", "10 6", "4 5", "14 4 3 4", "8 4", "2 6"];
-
 function getLaneChartColor(laneId, fallbackIndex = 0) {
   if (laneId != null && laneId >= 1 && laneId <= LANE_CHART_PALETTE.length) {
     return LANE_CHART_PALETTE[laneId - 1];
   }
   return LANE_CHART_PALETTE[fallbackIndex % LANE_CHART_PALETTE.length];
-}
-
-function getLaneChartDash(laneId, fallbackIndex = 0) {
-  const index =
-    laneId != null && laneId >= 1 && laneId <= LANE_CHART_DASHES.length
-      ? laneId - 1
-      : fallbackIndex % LANE_CHART_DASHES.length;
-  return LANE_CHART_DASHES[index];
 }
 
 function renderEquityLaneControls(lanes, selectedIds, onChange) {
@@ -897,9 +887,7 @@ function renderMultiEquityCurve(laneSeries) {
         })
         .join(" ");
       const color = getLaneChartColor(series.laneId, seriesIndex);
-      const dash = getLaneChartDash(series.laneId, seriesIndex);
-      const dashAttr = dash ? ` stroke-dasharray="${dash}"` : "";
-      return `<polyline points="${points}" class="chart-line lane-line" stroke="${color}"${dashAttr} />`;
+      return `<polyline points="${points}" class="chart-line lane-line" style="stroke:${color}" />`;
     })
     .join("");
 

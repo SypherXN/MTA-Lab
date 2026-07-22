@@ -205,10 +205,13 @@ main {
 
 .chart-line {
   fill: none;
-  stroke: var(--accent-strong);
   stroke-width: 2;
   stroke-linejoin: round;
   stroke-linecap: round;
+}
+
+.chart-line:not(.lane-line):not(.live-track) {
+  stroke: var(--accent-strong);
 }
 
 .chart-line.lane-line {
@@ -2003,7 +2006,7 @@ tbody tr {
   stroke: #d6ded8;
 }
 
-.chart-line {
+.chart-line:not(.lane-line):not(.live-track) {
   stroke: var(--accent);
   stroke-width: 2.25;
 }
