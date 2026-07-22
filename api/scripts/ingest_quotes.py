@@ -27,7 +27,7 @@ from app.schemas import QuoteImportRow  # noqa: E402
 
 USER_AGENT = "MTA-Lab-QuoteIngest/1.0"
 YAHOO_SPARK_URL = "https://query1.finance.yahoo.com/v7/finance/spark"
-BATCH_SIZE = 40
+BATCH_SIZE = 10
 
 
 def _collect_symbols(watchlist: list[str], discovery_pool: list[str]) -> list[str]:
@@ -47,42 +47,55 @@ def _collect_symbols(watchlist: list[str], discovery_pool: list[str]) -> list[st
     return symbols
 
 
+def _fetch_batch(client: httpx.Client, batch: list[str]) -> list[QuoteImportRow]:
+    if not batch:
+        return []
+    response = client.get(
+        YAHOO_SPARK_URL,
+        params={
+            "symbols": ",".join(batch),
+            "range": "1d",
+            "interval": "5m",
+        },
+        timeout=25.0,
+    )
+    if response.status_code == 400 and len(batch) > 1:
+        quotes: list[QuoteImportRow] = []
+        for symbol in batch:
+            quotes.extend(_fetch_batch(client, [symbol]))
+        return quotes
+    response.raise_for_status()
+    quotes: list[QuoteImportRow] = []
+    payload = response.json()
+    for item in payload.get("spark", {}).get("result", []):
+        symbol = (item.get("symbol") or "").upper().strip()
+        if not symbol:
+            continue
+        responses = item.get("response") or []
+        if not responses:
+            continue
+        meta = responses[0].get("meta") or {}
+        price = meta.get("regularMarketPrice")
+        if price is None:
+            continue
+        price_f = float(price)
+        if price_f <= 0:
+            continue
+        quotes.append(
+            QuoteImportRow(
+                symbol=symbol,
+                price_usd=price_f,
+                source="yahoo-spark",
+            )
+        )
+    return quotes
+
+
 def _fetch_spark_quotes(client: httpx.Client, symbols: list[str]) -> list[QuoteImportRow]:
     quotes: list[QuoteImportRow] = []
     for offset in range(0, len(symbols), BATCH_SIZE):
         batch = symbols[offset : offset + BATCH_SIZE]
-        response = client.get(
-            YAHOO_SPARK_URL,
-            params={
-                "symbols": ",".join(batch),
-                "range": "1d",
-                "interval": "5m",
-            },
-            timeout=25.0,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        for item in payload.get("spark", {}).get("result", []):
-            symbol = (item.get("symbol") or "").upper().strip()
-            if not symbol:
-                continue
-            responses = item.get("response") or []
-            if not responses:
-                continue
-            meta = responses[0].get("meta") or {}
-            price = meta.get("regularMarketPrice")
-            if price is None:
-                continue
-            price_f = float(price)
-            if price_f <= 0:
-                continue
-            quotes.append(
-                QuoteImportRow(
-                    symbol=symbol,
-                    price_usd=price_f,
-                    source="yahoo-spark",
-                )
-            )
+        quotes.extend(_fetch_batch(client, batch))
     return quotes
 
 
