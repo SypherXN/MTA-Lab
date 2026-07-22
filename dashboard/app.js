@@ -810,7 +810,32 @@ function renderAgentPlansPanel(lanes) {
   });
 }
 
-const LANE_CHART_COLORS = ["#3d7a55", "#5fa878", "#8ec4a8", "#2f6b4a", "#a8d5ba", "#6aab82"];
+// Distinct hues per lane (colorblind-friendly on the green dashboard background).
+const LANE_CHART_PALETTE = [
+  "#1e6f4a", // lane 1 — forest green (theme anchor)
+  "#1d4ed8", // lane 2 — blue
+  "#c2410c", // lane 3 — orange
+  "#7c3aed", // lane 4 — violet
+  "#0891b2", // lane 5 — cyan
+  "#be185d", // lane 6 — rose
+];
+
+const LANE_CHART_DASHES = ["", "10 6", "4 5", "14 4 3 4", "8 4", "2 6"];
+
+function getLaneChartColor(laneId, fallbackIndex = 0) {
+  if (laneId != null && laneId >= 1 && laneId <= LANE_CHART_PALETTE.length) {
+    return LANE_CHART_PALETTE[laneId - 1];
+  }
+  return LANE_CHART_PALETTE[fallbackIndex % LANE_CHART_PALETTE.length];
+}
+
+function getLaneChartDash(laneId, fallbackIndex = 0) {
+  const index =
+    laneId != null && laneId >= 1 && laneId <= LANE_CHART_DASHES.length
+      ? laneId - 1
+      : fallbackIndex % LANE_CHART_DASHES.length;
+  return LANE_CHART_DASHES[index];
+}
 
 function renderEquityLaneControls(lanes, selectedIds, onChange) {
   const panel = document.getElementById("equity-lane-controls");
@@ -823,7 +848,7 @@ function renderEquityLaneControls(lanes, selectedIds, onChange) {
       (lane, index) => `
         <label class="lane-chip">
           <input type="checkbox" data-lane-id="${lane.id}" ${selectedIds.has(lane.id) ? "checked" : ""} />
-          <span style="color:${LANE_CHART_COLORS[index % LANE_CHART_COLORS.length]}">#${lane.id} ${lane.name}</span>
+          <span style="color:${getLaneChartColor(lane.id, index)}">#${lane.id} ${lane.name}</span>
         </label>
       `
     )
@@ -871,15 +896,17 @@ function renderMultiEquityCurve(laneSeries) {
           return `${x.toFixed(1)},${y.toFixed(1)}`;
         })
         .join(" ");
-      const color = LANE_CHART_COLORS[seriesIndex % LANE_CHART_COLORS.length];
-      return `<polyline points="${points}" class="chart-line" stroke="${color}" />`;
+      const color = getLaneChartColor(series.laneId, seriesIndex);
+      const dash = getLaneChartDash(series.laneId, seriesIndex);
+      const dashAttr = dash ? ` stroke-dasharray="${dash}"` : "";
+      return `<polyline points="${points}" class="chart-line lane-line" stroke="${color}"${dashAttr} />`;
     })
     .join("");
 
   const legend = seriesList
     .map(
       (series, index) =>
-        `<span style="color:${LANE_CHART_COLORS[index % LANE_CHART_COLORS.length]}">#${series.laneId} ${series.name}</span>`
+        `<span style="color:${getLaneChartColor(series.laneId, index)}">#${series.laneId} ${series.name}</span>`
     )
     .join(" · ");
 

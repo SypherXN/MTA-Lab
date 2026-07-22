@@ -208,6 +208,11 @@ main {
   stroke: var(--accent-strong);
   stroke-width: 2;
   stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.chart-line.lane-line {
+  stroke-width: 2.75;
 }
 
 .lane-badge {
