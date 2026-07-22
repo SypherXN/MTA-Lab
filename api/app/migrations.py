@@ -227,4 +227,8 @@ MIGRATIONS: dict[str, str] = {
         CREATE INDEX IF NOT EXISTS idx_symbol_proposals_symbol
             ON symbol_proposals(symbol, status);
     """,
+    "015_cursor_usage_estimated_cost": """
+        -- Applied via ALTER in Python when column missing; placeholder for tracking.
+        SELECT 1;
+    """,
 }

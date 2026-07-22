@@ -77,6 +77,23 @@ Requires `X-API-Key`. Accepts:
 }
 ```
 
-Dashboard stats aggregate `cursor_usage.cost_usd` into `total_cursor_cost_usd`. The **Cost Dashboard** section shows daily spend and breakdowns by model and run type.
+Dashboard stats aggregate billed `cost_usd` and imputed `estimated_cost_usd` into **effective cost** (`billed` when present, otherwise token estimate). The **Cost Dashboard** shows effective totals, daily spend, and breakdowns by model and run type.
+
+## Token-based effective cost (Included rows)
+
+When CSV rows show `Included` / `Free`, `cost_usd` is stored as **0** but `estimated_cost_usd` is computed from tokens using imputed list rates in `api/app/cursor_pricing.py`:
+
+| Model | Input ($/1M tok) | Output ($/1M tok) |
+|-------|------------------|-------------------|
+| `composer-2.5` | $0.25 | $1.00 |
+| `composer-2.5-fast` | $0.15 | $0.60 |
+| `auto` | $0.30 | $1.20 |
+| default / unknown | $0.30 | $1.20 |
+
+**Effective cost** = billed amount when &gt; 0, else estimated.
+
+Calibrate rates from your on-demand overage rows in the usage CSV export, then edit `MODEL_RATES` in `cursor_pricing.py`.
+
+Example: a lane run with 343k input + 7.7k output tokens on `composer-2.5` → ~**$0.09** effective (even when billed as Included).
 
 See [dashboard/README.md](../dashboard/README.md).

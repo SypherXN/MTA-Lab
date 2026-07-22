@@ -604,18 +604,31 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
                 action=action,
             )
 
-        if payload.usage and payload.usage.cost_usd is not None:
+        if payload.usage and (
+            payload.usage.cost_usd is not None
+            or payload.usage.input_tokens is not None
+            or payload.usage.output_tokens is not None
+        ):
+            from app.cursor_pricing import estimate_token_cost_usd
+
+            estimated_cost = estimate_token_cost_usd(
+                payload.usage.model,
+                payload.usage.input_tokens,
+                payload.usage.output_tokens,
+            )
             conn.execute(
                 """
                 INSERT INTO cursor_usage (
-                    run_id, cursor_run_id, model, cost_usd, input_tokens, output_tokens, source
-                ) VALUES (?, ?, ?, ?, ?, ?, 'automation_run')
+                    run_id, cursor_run_id, model, cost_usd, estimated_cost_usd,
+                    input_tokens, output_tokens, source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'automation_run')
                 """,
                 (
                     run_id,
                     payload.usage.cursor_run_id or payload.cursor_run_id,
                     payload.usage.model,
                     payload.usage.cost_usd,
+                    estimated_cost,
                     payload.usage.input_tokens,
                     payload.usage.output_tokens,
                 ),

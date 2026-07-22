@@ -337,9 +337,12 @@ class UsageBreakdownOut(BaseModel):
 
 class UsageSummaryOut(BaseModel):
     total_cost_usd: float
+    total_estimated_cost_usd: float = 0.0
+    total_effective_cost_usd: float = 0.0
     usage_row_count: int
     total_decisions: int
     cost_per_decision: float | None = None
+    estimated_cost_per_decision: float | None = None
     by_day: list[UsageDayOut] = Field(default_factory=list)
     by_model: list[UsageBreakdownOut] = Field(default_factory=list)
     by_run_type: list[UsageBreakdownOut] = Field(default_factory=list)
@@ -469,6 +472,7 @@ class CursorUsageImportRow(BaseModel):
     run_id: int | None = None
     model: str | None = None
     cost_usd: float
+    estimated_cost_usd: float | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
     timestamp: datetime | None = None
@@ -484,6 +488,8 @@ class CursorUsageOut(BaseModel):
     cursor_run_id: str | None
     model: str | None
     cost_usd: float | None
+    estimated_cost_usd: float | None = None
+    effective_cost_usd: float | None = None
     input_tokens: int | None
     output_tokens: int | None
     source: str

@@ -192,6 +192,13 @@ def _migration_side_effects(conn: sqlite3.Connection, version: str) -> None:
             )
     elif version == "011_simulation_lanes":
         _migrate_lane_tables(conn)
+    elif version == "015_cursor_usage_estimated_cost":
+        _ensure_column(
+            conn,
+            "cursor_usage",
+            "estimated_cost_usd",
+            "ALTER TABLE cursor_usage ADD COLUMN estimated_cost_usd REAL",
+        )
 
 
 def _apply_pending_migrations(conn: sqlite3.Connection) -> list[str]:

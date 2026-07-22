@@ -50,6 +50,7 @@ class CursorUsageCsvTests(unittest.TestCase):
         self.assertEqual(parsed["cursor_run_id"], "bc-c169401d-0cbc-458d-83c1-da5904854765")
         self.assertEqual(parsed["model"], "composer-2.5")
         self.assertEqual(parsed["cost_usd"], 0.0)
+        self.assertAlmostEqual(parsed["estimated_cost_usd"], 0.093523, places=5)
         self.assertEqual(parsed["input_tokens"], 343421)
         self.assertEqual(parsed["output_tokens"], 7668)
         self.assertEqual(parsed["timestamp"], "2026-07-22T14:05:00.902Z")

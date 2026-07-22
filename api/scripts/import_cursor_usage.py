@@ -38,7 +38,11 @@ def main() -> None:
     args = parse_args()
     rows = load_cursor_usage_csv(args.csv_path, automations_only=args.automations_only)
     if args.dry_run:
-        print(f"dry-run: would import {len(rows)} row(s) (automations_only={args.automations_only})")
+        estimated_total = sum(row.get("estimated_cost_usd") or 0 for row in rows)
+        print(
+            f"dry-run: would import {len(rows)} row(s) "
+            f"(automations_only={args.automations_only}, estimated_total=${estimated_total:.2f})"
+        )
         if rows[:3]:
             print(json.dumps(rows[:3], indent=2))
         return

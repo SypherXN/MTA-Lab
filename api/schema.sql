@@ -120,6 +120,7 @@ CREATE TABLE IF NOT EXISTS cursor_usage (
     cursor_run_id TEXT,
     model TEXT,
     cost_usd REAL,
+    estimated_cost_usd REAL,
     input_tokens INTEGER,
     output_tokens INTEGER,
     source TEXT NOT NULL DEFAULT 'cursor_dashboard',

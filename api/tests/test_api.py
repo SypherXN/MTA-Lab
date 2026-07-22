@@ -1370,6 +1370,8 @@ class PriorityGroupBatch2Tests(unittest.TestCase):
         )
         summary = client.get("/api/dashboard/usage/summary").json()
         self.assertGreaterEqual(summary["total_cost_usd"], 1.25)
+        self.assertGreaterEqual(summary["total_effective_cost_usd"], 1.25)
+        self.assertIn("total_estimated_cost_usd", summary)
         self.assertIn("by_model", summary)
         self.assertIn("by_run_type", summary)
 

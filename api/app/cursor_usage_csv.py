@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
+from app.cursor_pricing import estimate_token_cost_usd
+
 AUTOMATION_HEADERS = frozenset({"Automation ID", "Cloud Agent ID"})
 USAGE_EVENTS_HEADERS = AUTOMATION_HEADERS | {
     "Date",
@@ -107,10 +109,13 @@ def parse_usage_row(row: dict[str, str], *, usage_events_format: bool) -> dict |
     if cost_usd is None and input_tokens is None and output_tokens is None:
         return None
 
+    estimated_cost_usd = estimate_token_cost_usd(model, input_tokens, output_tokens)
+
     return {
         "cursor_run_id": cursor_run_id,
         "model": model,
         "cost_usd": cost_usd if cost_usd is not None else 0.0,
+        "estimated_cost_usd": estimated_cost_usd,
         "input_tokens": input_tokens,
         "output_tokens": output_tokens,
         "timestamp": timestamp,

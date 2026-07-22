@@ -1094,9 +1094,11 @@ function renderCostDashboard(summary) {
 
   document.getElementById("cost-dashboard-panel").innerHTML = `
     <div class="equity-curve-meta">
-      <span>Total: ${formatMoney(summary.total_cost_usd)}</span>
+      <span>Effective total: ${formatMoney(summary.total_effective_cost_usd ?? summary.total_cost_usd)}</span>
+      <span>Billed: ${formatMoney(summary.total_cost_usd)}</span>
+      <span>Est. (tokens): ${formatMoney(summary.total_estimated_cost_usd ?? 0)}</span>
       <span>${summary.usage_row_count} usage rows</span>
-      <span>Cost/decision: ${summary.cost_per_decision != null ? formatMoney(summary.cost_per_decision) : "—"}</span>
+      <span>Cost/decision: ${summary.estimated_cost_per_decision != null ? formatMoney(summary.estimated_cost_per_decision) : summary.cost_per_decision != null ? formatMoney(summary.cost_per_decision) : "—"}</span>
     </div>
     ${
       days.length
@@ -1685,6 +1687,8 @@ function renderUsage(usageRows) {
           <td>${row.run_id ?? "—"}</td>
           <td>${row.model || "—"}</td>
           <td>${formatMoney(row.cost_usd)}</td>
+          <td>${formatMoney(row.estimated_cost_usd)}</td>
+          <td>${formatMoney(row.effective_cost_usd ?? row.cost_usd)}</td>
           <td>${row.input_tokens ?? "—"}</td>
           <td>${row.output_tokens ?? "—"}</td>
           <td>${row.source}</td>
@@ -1696,9 +1700,9 @@ function renderUsage(usageRows) {
   document.getElementById("usage-table-wrap").innerHTML = `
     <table>
       <thead>
-        <tr><th>Time</th><th>Run ID</th><th>Model</th><th>Cost</th><th>Input</th><th>Output</th><th>Source</th></tr>
+        <tr><th>Time</th><th>Run ID</th><th>Model</th><th>Billed</th><th>Est.</th><th>Effective</th><th>Input</th><th>Output</th><th>Source</th></tr>
       </thead>
-      <tbody>${rows || `<tr><td colspan="7">No usage logged yet.</td></tr>`}</tbody>
+      <tbody>${rows || `<tr><td colspan="9">No usage logged yet.</td></tr>`}</tbody>
     </table>
   `;
 }

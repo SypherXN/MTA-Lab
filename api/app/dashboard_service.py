@@ -18,7 +18,10 @@ from app.schemas import (
     QuoteOut,
     RunSummaryOut,
 )
+from app.cursor_pricing import effective_cost_usd, estimate_token_cost_usd
 from app.snapshot_service import get_portfolio_snapshot_summary, get_portfolio_snapshots
+
+EFFECTIVE_COST_SQL = "COALESCE(NULLIF(cost_usd, 0), estimated_cost_usd, 0)"
 
 def get_dashboard_runs(conn: sqlite3.Connection, limit: int = 50) -> list[RunSummaryOut]:
     return [
@@ -135,18 +138,22 @@ def import_cursor_usage(conn: sqlite3.Connection, payload: CursorUsageImportRequ
         resolved_run_id = _resolve_run_id(conn, row.run_id, row.cursor_run_id)
         if resolved_run_id is not None and row.run_id is None:
             linked += 1
+        estimated_cost = row.estimated_cost_usd
+        if estimated_cost is None:
+            estimated_cost = estimate_token_cost_usd(row.model, row.input_tokens, row.output_tokens)
         conn.execute(
             """
             INSERT INTO cursor_usage (
-                run_id, cursor_run_id, model, cost_usd, input_tokens, output_tokens,
+                run_id, cursor_run_id, model, cost_usd, estimated_cost_usd, input_tokens, output_tokens,
                 source, reconciled_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'cursor_dashboard_csv', ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'cursor_dashboard_csv', ?)
             """,
             (
                 resolved_run_id,
                 row.cursor_run_id,
                 row.model,
                 row.cost_usd,
+                estimated_cost,
                 row.input_tokens,
                 row.output_tokens,
                 (row.timestamp or datetime.now(timezone.utc)).isoformat(),
@@ -180,6 +187,8 @@ def get_dashboard_usage(conn: sqlite3.Connection, limit: int = 50) -> list[Curso
             cursor_run_id=row["cursor_run_id"],
             model=row["model"],
             cost_usd=row["cost_usd"],
+            estimated_cost_usd=row["estimated_cost_usd"],
+            effective_cost_usd=effective_cost_usd(row["cost_usd"], row["estimated_cost_usd"]),
             input_tokens=row["input_tokens"],
             output_tokens=row["output_tokens"],
             source=row["source"],
@@ -188,8 +197,8 @@ def get_dashboard_usage(conn: sqlite3.Connection, limit: int = 50) -> list[Curso
         )
         for row in conn.execute(
             """
-            SELECT id, run_id, cursor_run_id, model, cost_usd, input_tokens, output_tokens,
-                   source, reconciled_at, created_at
+            SELECT id, run_id, cursor_run_id, model, cost_usd, estimated_cost_usd,
+                   input_tokens, output_tokens, source, reconciled_at, created_at
             FROM cursor_usage
             ORDER BY id DESC
             LIMIT ?
