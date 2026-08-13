@@ -6,6 +6,7 @@ from app.lane_service import get_lane, list_lanes
 from app.market_compare_service import lane_market_window
 from app.quote_history_service import DEFAULT_BENCHMARK, ensure_benchmark_history
 from app.schemas import LaneCompareOut, LaneCompareRowOut
+from app.safety import SIMULATED_ACTIONS, sql_quoted_actions
 from app.snapshot_service import get_lane_equity_change
 
 
@@ -40,13 +41,14 @@ def compare_lanes(
             (lid, since) if since else (lid,),
         ).fetchone()
 
+        action_list = sql_quoted_actions(SIMULATED_ACTIONS)
         decision_stats = conn.execute(
-            """
+            f"""
             SELECT
                 COUNT(*) AS decision_count,
                 AVG(d.confidence) AS avg_confidence,
                 SUM(CASE WHEN lower(d.action) IN (
-                    'simulated_buy', 'simulated_sell', 'paper_buy', 'paper_sell'
+                    {action_list}
                 ) THEN 1 ELSE 0 END) AS simulated_trades
             FROM decisions d
             JOIN automation_runs r ON r.id = d.run_id

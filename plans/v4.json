@@ -83,7 +83,7 @@
     {
       "step": 12,
       "action": "analyze",
-      "description": "Analyze core watchlist anchors first, then up to symbol_discovery.max_per_run names from candidate_pool. Rank pool by liquidity, relative strength vs QQQ, and thesis clarity. Paper entries only on allowed_symbols with confidence >= plan threshold.",
+      "description": "Manage open explorer positions first. Then analyze core watchlist anchors, then up to symbol_discovery.max_per_run names from candidate_pool. Rank pool by liquidity, relative strength vs QQQ, and thesis clarity. Paper entries only on allowed_symbols with confidence >= plan threshold. Use trim/stop/take-profit instead of holding forever.",
       "required": true
     },
     {

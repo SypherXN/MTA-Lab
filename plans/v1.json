@@ -69,7 +69,7 @@
     {
       "step": 10,
       "action": "analyze",
-      "description": "Balanced analysis: consider simulated_buy when entry thresholds are met (see scoring_rules_extra). Otherwise hold. Use market inputs, symbol memory, news, and history.",
+      "description": "Balanced analysis: manage open positions first (trim/add/stop/take-profit/flatten). Consider simulated_buy only when entry thresholds are met. Cash is a valid allocation.",
       "required": true
     },
     {

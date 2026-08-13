@@ -39,7 +39,7 @@ flowchart TD
 |-------|--------|-------|
 | API + SQLite schema | Done | Migrations, retention, rollups |
 | Agent plans | Done | Repo sync, version history, per-lane binding |
-| Multi-lane simulation | Done | Lanes, compare, live periods, sequential mode |
+| Multi-lane simulation | Done | Lanes, compare, live periods, sequential mode, Reddit + explorer challengers |
 | Research automation | Done | [research-prompt.md](automation/research-prompt.md) |
 | Dashboard | Done | Lanes, live track, plans viewer, safety controls |
 | Safety + live promotion | Done | Preflight, promotion tokens, kill switch |

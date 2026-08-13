@@ -125,6 +125,9 @@ class DecisionIn(BaseModel):
     order_id: str | None = None
     amount_usd: float | None = None
     fill_price: float | None = None
+    percent_of_position: float | None = Field(None, ge=0, le=1)
+    stop_price: float | None = None
+    target_price: float | None = None
 
     def resolved_confidence(self) -> float | None:
         if self.scores and self.scores.confidence is not None:
@@ -272,6 +275,38 @@ class NewsEventOut(BaseModel):
     sentiment: float | None = None
     summary: str
     ingested_at: str
+
+
+class RedditPostOut(BaseModel):
+    id: str
+    subreddit: str
+    title: str
+    score: int
+    comments: int
+    upvote_ratio: float | None = None
+    created_at: str
+    permalink: str
+    tickers: list[str] = Field(default_factory=list)
+    sentiment: float
+    importance: float
+
+
+class RedditMentionOut(BaseModel):
+    symbol: str
+    post_count: int
+    avg_sentiment: float
+    max_importance: float
+    sample_titles: list[str] = Field(default_factory=list)
+
+
+class RedditResearchOut(BaseModel):
+    fetched_at: str
+    subreddits: list[str]
+    posts: list[RedditPostOut] = Field(default_factory=list)
+    mentions: list[RedditMentionOut] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    ingested: int | None = None
+    skipped: int | None = None
 
 
 class MarketInputCheckItemOut(BaseModel):

@@ -57,6 +57,8 @@ class ApiTests(unittest.TestCase):
         self.assertIn("daily_trades_remaining", body["safety"])
         self.assertIn("allowed_actions", body["safety"])
         self.assertIn("simulated_buy", body["safety"]["allowed_actions"])
+        self.assertIn("simulated_trim", body["safety"]["allowed_actions"])
+        self.assertIn("simulated_flatten", body["safety"]["allowed_actions"])
         self.assertNotIn("buy", body["safety"]["allowed_actions"])
 
     def test_agent_plan_endpoint(self):
@@ -521,6 +523,10 @@ class PlanVersionHistoryTests(unittest.TestCase):
         body = response.json()
         self.assertGreaterEqual(body["imported"] + body["updated"] + body["unchanged"], 1)
         self.assertEqual(body["errors"], [])
+        v5 = client.get("/api/automation/plans/v5").json()
+        self.assertEqual(v5["version"], "v5")
+        self.assertTrue(any(step["action"] == "ingest_reddit" for step in v5["run_order"]))
+        self.assertTrue(any(rule["id"] == "active_position_management" for rule in v5["scoring_rules"]))
 
 
 class DecisionScoringTests(unittest.TestCase):
@@ -2042,6 +2048,233 @@ class SimulationLaneTests(unittest.TestCase):
             conn.execute("SELECT 1 FROM lane_execution_lock LIMIT 1")
         finally:
             conn.close()
+
+
+class PositionManagementTests(unittest.TestCase):
+    def setUp(self):
+        strategy_resp = client.patch(
+            "/api/automation/strategy",
+            json={
+                "rules": {
+                    "allowed_symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
+                    "max_order_usd": 200,
+                    "max_daily_trades": 50,
+                    "max_daily_notional_usd": 500000,
+                    "require_review_before_place": True,
+                    "watchlist": ["SPY", "QQQ"],
+                    "symbol_cooldown_hours": 0,
+                }
+            },
+            headers={"X-API-Key": "test-key"},
+        ).json()
+        self.strategy_version = strategy_resp["version"]
+        created = client.post(
+            "/api/admin/lanes",
+            json={
+                "name": f"pm-{self.strategy_version}",
+                "strategy_version": self.strategy_version,
+                "plan_version": "v1",
+                "lane_role": "research",
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        self.lane_id = created.json()["id"]
+
+    def tearDown(self):
+        client.patch(
+            f"/api/admin/lanes/{self.lane_id}",
+            json={"status": "archived"},
+            headers={"X-API-Key": "test-key"},
+        )
+
+    def _run(self, cursor_run_id, decisions):
+        response = client.post(
+            "/api/automation/runs",
+            json={
+                "cursor_run_id": cursor_run_id,
+                "lane_id": self.lane_id,
+                "self_critique": "Position management test.",
+                "decisions": decisions,
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        return response.json()
+
+    def _portfolio(self):
+        return client.get(f"/api/automation/context?lane_id={self.lane_id}").json()[
+            "simulated_portfolio"
+        ]
+
+    def test_trim_add_and_flatten(self):
+        self._run(
+            f"pm-buy-{self.lane_id}",
+            [
+                {
+                    "symbol": "AAPL",
+                    "action": "simulated_buy",
+                    "reason": "Open a lot.",
+                    "amount_usd": 200,
+                    "fill_price": 100,
+                    "stop_price": 90,
+                    "target_price": 120,
+                }
+            ],
+        )
+        portfolio = self._portfolio()
+        self.assertEqual(len(portfolio["positions"]), 1)
+        self.assertAlmostEqual(portfolio["positions"][0]["quantity"], 2.0)
+
+        self._run(
+            f"pm-trim-{self.lane_id}",
+            [
+                {
+                    "symbol": "AAPL",
+                    "action": "simulated_trim",
+                    "reason": "Scale out half.",
+                    "percent_of_position": 0.5,
+                    "fill_price": 110,
+                }
+            ],
+        )
+        portfolio = self._portfolio()
+        self.assertAlmostEqual(portfolio["positions"][0]["quantity"], 1.0)
+
+        self._run(
+            f"pm-add-{self.lane_id}",
+            [
+                {
+                    "symbol": "AAPL",
+                    "action": "simulated_add",
+                    "reason": "Add to winner.",
+                    "amount_usd": 110,
+                    "fill_price": 110,
+                }
+            ],
+        )
+        portfolio = self._portfolio()
+        self.assertGreater(portfolio["positions"][0]["quantity"], 1.0)
+
+        self._run(
+            f"pm-flat-{self.lane_id}",
+            [
+                {
+                    "symbol": "AAPL",
+                    "action": "simulated_flatten",
+                    "reason": "Exit.",
+                    "fill_price": 108,
+                }
+            ],
+        )
+        portfolio = self._portfolio()
+        self.assertEqual(portfolio["positions"], [])
+
+    def test_flatten_not_blocked_by_max_order_usd(self):
+        self._run(
+            f"pm-cap-buy-{self.lane_id}",
+            [
+                {
+                    "symbol": "MSFT",
+                    "action": "simulated_buy",
+                    "reason": "Open at cap.",
+                    "amount_usd": 200,
+                    "fill_price": 100,
+                }
+            ],
+        )
+        flatten = client.post(
+            "/api/automation/runs",
+            json={
+                "cursor_run_id": f"pm-cap-flat-{self.lane_id}",
+                "lane_id": self.lane_id,
+                "self_critique": "Flatten above max_order_usd.",
+                "decisions": [
+                    {
+                        "symbol": "MSFT",
+                        "action": "simulated_stop",
+                        "reason": "Thesis broken.",
+                        "fill_price": 150,
+                    }
+                ],
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(flatten.status_code, 200, flatten.text)
+        portfolio = self._portfolio()
+        self.assertEqual(portfolio["positions"], [])
+
+    def test_exits_do_not_consume_daily_notional(self):
+        self._run(
+            f"pm-notional-buy-{self.lane_id}",
+            [
+                {
+                    "symbol": "QQQ",
+                    "action": "simulated_buy",
+                    "reason": "Entry.",
+                    "amount_usd": 200,
+                    "fill_price": 100,
+                }
+            ],
+        )
+        context = client.get(f"/api/automation/context?lane_id={self.lane_id}").json()
+        self.assertEqual(context["safety"]["daily_notional_used"], 200)
+        self._run(
+            f"pm-notional-sell-{self.lane_id}",
+            [
+                {
+                    "symbol": "QQQ",
+                    "action": "simulated_take_profit",
+                    "reason": "Target hit.",
+                    "fill_price": 120,
+                }
+            ],
+        )
+        context = client.get(f"/api/automation/context?lane_id={self.lane_id}").json()
+        self.assertEqual(context["safety"]["daily_notional_used"], 200)
+        self.assertEqual(context["safety"]["daily_trades_used"], 2)
+
+
+class RedditIngestApiTests(unittest.TestCase):
+    def test_reddit_ingest_stores_news(self):
+        from unittest.mock import MagicMock, patch
+
+        payload = {
+            "data": {
+                "children": [
+                    {
+                        "data": {
+                            "id": "abc99",
+                            "title": "$MSFT cloud beat",
+                            "selftext": "",
+                            "score": 1200,
+                            "upvote_ratio": 0.88,
+                            "num_comments": 40,
+                            "created_utc": 1700000000,
+                            "permalink": "/r/stocks/comments/abc99/msft/",
+                            "subreddit": "stocks",
+                        }
+                    }
+                ]
+            }
+        }
+        response = MagicMock()
+        response.raise_for_status = MagicMock()
+        response.json.return_value = payload
+        fake = MagicMock()
+        fake.get.return_value = response
+        with patch("app.reddit_service.httpx.Client") as client_cls:
+            client_cls.return_value.__enter__.return_value = fake
+            ingest = client.post(
+                "/api/admin/reddit/ingest?subreddits=stocks&limit=5",
+                headers={"X-API-Key": "test-key"},
+            )
+        self.assertEqual(ingest.status_code, 200, ingest.text)
+        body = ingest.json()
+        self.assertGreaterEqual(body["ingested"], 1)
+        news = client.get("/api/automation/news?source=reddit").json()
+        self.assertGreaterEqual(len(news), 1)
+        self.assertEqual(news[0]["source"], "reddit")
 
 
 if __name__ == "__main__":

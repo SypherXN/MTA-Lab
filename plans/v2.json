@@ -69,7 +69,7 @@
     {
       "step": 10,
       "action": "analyze",
-      "description": "Trend-first analysis: index regime (SPY/QQQ), volatility state, movers vs avg cost, recent price action from quotes/historicals. Favor simulated_buy when technical score is strong and index trend aligns; hold in range-bound or conflicting index setups.",
+      "description": "Trend-first analysis: manage open positions (trail with trim/stop/take-profit) before new entries. Index regime (SPY/QQQ), volatility state, movers vs avg cost, recent price action from quotes/historicals. Favor simulated_buy when technical score is strong and index trend aligns; hold or flatten in range-bound or conflicting index setups.",
       "required": true
     },
     {

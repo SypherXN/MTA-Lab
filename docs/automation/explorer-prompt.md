@@ -97,7 +97,8 @@ Pair with weekly **`mta-ticker-scout`** ([ticker-scout-prompt.md](./ticker-scout
 ## Safety rules (binding)
 
 - **Always** include `cursor_run_id` and `usage` on `POST /api/automation/runs` so CSV usage imports link to this lane.
-- **Paper only** on this lane — use `simulated_buy` / `simulated_sell` only.
+- **Paper only** on this lane — use `simulated_buy`, `simulated_add`, `simulated_trim`, `simulated_stop`, `simulated_take_profit`, `simulated_flatten` (not live `buy`/`sell`).
+- Review open explorer positions every run; do not buy-and-hold by default.
 - Never `place_equity_order` unless `safety.trading_allowed` is true (should not happen on explorer).
 - Respect `allowed_symbols`, caps, and cooldowns.
 - Discovery picks must come from `candidate_pool` and stay within `max_per_run`.
@@ -120,4 +121,5 @@ See [ticker-exploration-setup.md](./ticker-exploration-setup.md) for the full op
 
 - [ticker-exploration-setup.md](./ticker-exploration-setup.md) — one-time setup
 - [ticker-scout-prompt.md](./ticker-scout-prompt.md) — weekly pool feeder
+- [reddit-prompt.md](./reddit-prompt.md) — Reddit research lane
 - [multi-lane-simulation.md](./multi-lane-simulation.md) — lane comparison

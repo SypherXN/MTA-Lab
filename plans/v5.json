@@ -1,0 +1,168 @@
+{
+  "version": "v5",
+  "name": "Reddit Research Plan",
+  "change_source": "github",
+  "extends": "_base",
+  "run_order": [
+    {
+      "step": 1,
+      "action": "fetch_plan",
+      "description": "Load the Reddit research plan from the API.",
+      "endpoint": "GET /api/automation/plan",
+      "required": true
+    },
+    {
+      "step": 2,
+      "action": "fetch_context",
+      "description": "Load strategy, safety budget, lane turn, and intervention status.",
+      "endpoint": "GET /api/automation/context",
+      "required": true
+    },
+    {
+      "step": 3,
+      "action": "check_budget",
+      "description": "Verify daily/monthly and per-run-type budget before proceeding.",
+      "required": true
+    },
+    {
+      "step": 4,
+      "action": "check_intervention",
+      "description": "Verify no critical intervention triggers before proceeding.",
+      "endpoint": "GET /api/automation/intervention/check",
+      "required": true
+    },
+    {
+      "step": 5,
+      "action": "fetch_market_state",
+      "description": "Read portfolio, positions, index quotes (SPY/QQQ), and recent orders via Robinhood MCP.",
+      "source": "robinhood_mcp",
+      "required": true
+    },
+    {
+      "step": 6,
+      "action": "sync_orders",
+      "description": "Import Robinhood orders for reconciliation.",
+      "endpoint": "POST /api/admin/robinhood-orders/import",
+      "required": true
+    },
+    {
+      "step": 7,
+      "action": "fetch_market_inputs",
+      "description": "Load quotes, indices, volatility proxy, and freshness checklist.",
+      "endpoint": "GET /api/automation/market-inputs",
+      "required": true
+    },
+    {
+      "step": 8,
+      "action": "ingest_reddit",
+      "description": "Fetch public Reddit finance listings via the API (do not scrape login-gated pages). Ingest mention summaries into the news store.",
+      "endpoint": "POST /api/admin/reddit/ingest",
+      "required": true
+    },
+    {
+      "step": 9,
+      "action": "fetch_reddit",
+      "description": "Read ranked ticker mentions and sample posts. Focus on allowed_symbols with the highest post_count.",
+      "endpoint": "GET /api/automation/reddit",
+      "required": true
+    },
+    {
+      "step": 10,
+      "action": "fetch_news",
+      "description": "Read stored news including source=reddit plus RSS/earnings context for confirmation.",
+      "endpoint": "GET /api/automation/news",
+      "required": true
+    },
+    {
+      "step": 11,
+      "action": "fetch_symbol_memory",
+      "description": "Load memory for open positions and top Reddit mentions you will analyze.",
+      "endpoint": "GET /api/automation/symbols/{symbol}/memory",
+      "required": true
+    },
+    {
+      "step": 12,
+      "action": "analyze",
+      "description": "Social-first but not social-only: Reddit mentions set the candidate list. Confirm with quotes/tape before simulated_buy. Manage open positions with trim/stop/take-profit/flatten. Fade one-off hype with no tape confirmation.",
+      "required": true
+    },
+    {
+      "step": 13,
+      "action": "review_trades",
+      "description": "Call review_equity_order for any would-be live trade; never place unless safety.trading_allowed.",
+      "required": false
+    },
+    {
+      "step": 14,
+      "action": "self_critique",
+      "description": "Verify Reddit mentions were cited, tape confirmation exists for entries, and position-management actions were considered for open lots.",
+      "required": true
+    },
+    {
+      "step": 15,
+      "action": "log_run",
+      "description": "POST completed or failed run with decisions, quotes, usage, and errors.",
+      "endpoint": "POST /api/automation/runs",
+      "required": true
+    }
+  ],
+  "scoring_rules_extra": [
+    {
+      "id": "reddit_primary",
+      "priority": "critical",
+      "rule": "News/social score is the primary driver. New simulated_buy requires a named Reddit thread or mention rollup in action_rationale plus news score >= 0.55."
+    },
+    {
+      "id": "tape_confirmation",
+      "priority": "critical",
+      "rule": "Do not buy Reddit hype against hostile tape. simulated_buy also needs technical >= 0.45 and confidence >= 0.55. If mentions are hot but the quote is dumping, skip or wait."
+    },
+    {
+      "id": "allowed_symbols_only",
+      "priority": "critical",
+      "rule": "Never log trades on symbols outside allowed_symbols. Mentions outside the list are research-only (skip)."
+    },
+    {
+      "id": "hype_risk",
+      "priority": "high",
+      "rule": "Raise risk when a name is dominated by YOLO/meme language, very new listings, or a single viral post. Prefer liquid large/mid-caps and major ETFs. Size $150–$300."
+    },
+    {
+      "id": "open_position_social_review",
+      "priority": "high",
+      "rule": "If an open position's Reddit sentiment flips clearly negative or the catalyst post ages out with no follow-through, prefer simulated_trim, simulated_stop, or simulated_flatten over hold."
+    },
+    {
+      "id": "skip_without_mentions",
+      "priority": "medium",
+      "rule": "When Reddit ingest fails or returns no usable mentions, do not force new entries. Manage existing positions only and explain the gap."
+    }
+  ],
+  "required_inputs_extra": [
+    {
+      "name": "reddit_research",
+      "source": "GET /api/automation/reddit and POST /api/admin/reddit/ingest",
+      "description": "Public finance-subreddit posts, extracted tickers, and mention rollups.",
+      "required": true
+    }
+  ],
+  "data_sources_extra": [
+    {
+      "name": "reddit_public_json",
+      "type": "http",
+      "description": "API fetches public Reddit listings (wallstreetbets, stocks, investing, StockMarket, earnings). No login scraping."
+    }
+  ],
+  "stop_conditions_extra": [
+    {
+      "condition": "reddit_unavailable",
+      "action": "manage_positions_only",
+      "description": "If Reddit ingest/fetch fails, skip new entries; still manage open paper positions."
+    },
+    {
+      "condition": "hype_without_tape",
+      "action": "skip_new_entries",
+      "description": "Viral mentions without quote confirmation must not become simulated_buy."
+    }
+  ]
+}

@@ -51,6 +51,8 @@ from app.schemas import (
 from app.safety import (
     RUN_STATUS_COMPLETED,
     RUN_STATUS_FAILED,
+    SIMULATED_BUY_ACTIONS,
+    SIMULATED_SELL_ACTIONS,
     TRADE_ACTIONS,
     VALID_RUN_STATUSES,
     build_safety_snapshot,
@@ -59,9 +61,6 @@ from app.safety import (
     trading_is_allowed,
     validate_run_decisions,
 )
-
-SIMULATED_BUY_ACTIONS = {"simulated_buy", "paper_buy"}
-SIMULATED_SELL_ACTIONS = {"simulated_sell", "paper_sell"}
 
 
 def _iso_now() -> str:
@@ -219,6 +218,56 @@ def get_automation_context(conn: sqlite3.Connection, lane_id: int | None = None)
     )
 
 
+def _position_quantity(conn: sqlite3.Connection, lane_id: int, symbol: str) -> float | None:
+    row = conn.execute(
+        """
+        SELECT quantity FROM simulated_positions
+        WHERE lane_id = ? AND symbol = ?
+        """,
+        (lane_id, symbol.upper()),
+    ).fetchone()
+    if row is None:
+        return None
+    return float(row["quantity"])
+
+
+def _decision_rationale_with_levels(decision) -> str | None:
+    rationale = (decision.action_rationale or "").strip() or None
+    bits: list[str] = []
+    if decision.stop_price is not None:
+        bits.append(f"stop {decision.stop_price:g}")
+    if decision.target_price is not None:
+        bits.append(f"target {decision.target_price:g}")
+    if not bits:
+        return rationale
+    suffix = "[" + ", ".join(bits) + "]"
+    if rationale and suffix.lower() in rationale.lower():
+        return rationale
+    return f"{rationale} {suffix}".strip() if rationale else suffix
+
+
+def _resolve_simulated_amount(
+    conn: sqlite3.Connection,
+    lane_id: int,
+    decision,
+) -> float | None:
+    action = decision.action.lower()
+    amount = decision.amount_usd
+    price = decision.fill_price
+    if action not in SIMULATED_SELL_ACTIONS:
+        return amount
+    quantity = _position_quantity(conn, lane_id, decision.symbol)
+    if quantity is None or quantity <= 0:
+        return amount
+    if price is None or price <= 0:
+        return amount
+    if decision.percent_of_position is not None:
+        return quantity * price * float(decision.percent_of_position)
+    if amount is None or amount <= 0:
+        return quantity * price
+    return amount
+
+
 def _apply_simulated_trade(
     conn: sqlite3.Connection,
     lane_id: int,
@@ -227,16 +276,25 @@ def _apply_simulated_trade(
     amount_usd: float | None,
     fill_price: float | None,
 ) -> None:
-    if amount_usd is None or amount_usd <= 0:
+    symbol = symbol.upper()
+    action = action.lower()
+    price = fill_price
+
+    if action in SIMULATED_SELL_ACTIONS:
+        pos_qty = _position_quantity(conn, lane_id, symbol)
+        if pos_qty is None or pos_qty <= 0:
+            raise ValueError(f"No simulated position to sell for {symbol}")
+        if price is None or price <= 0:
+            raise ValueError(f"fill_price is required to sell {symbol}")
+        if amount_usd is None or amount_usd <= 0:
+            amount_usd = pos_qty * price
+    elif amount_usd is None or amount_usd <= 0:
         return
 
-    price = fill_price
     if price is None or price <= 0:
         price = amount_usd
 
     quantity = amount_usd / price
-    symbol = symbol.upper()
-    action = action.lower()
 
     conn.execute(
         """
@@ -557,6 +615,9 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
         run_id = cursor.lastrowid
 
         for decision in payload.decisions:
+            action = decision.action.lower()
+            resolved_amount = _resolve_simulated_amount(conn, resolved_lane, decision)
+            rationale = _decision_rationale_with_levels(decision)
             conn.execute(
                 """
                 INSERT INTO decisions (
@@ -574,10 +635,10 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
                     decision.resolved_technical_score(),
                     decision.resolved_news_score(),
                     decision.resolved_risk_score(),
-                    decision.action_rationale,
+                    rationale,
                     decision.review_output,
                     decision.order_id,
-                    decision.amount_usd,
+                    resolved_amount,
                     strategy.mode,
                 ),
             )
@@ -585,14 +646,13 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
             if status != RUN_STATUS_COMPLETED:
                 continue
 
-            action = decision.action.lower()
             if action in SIMULATED_BUY_ACTIONS or action in SIMULATED_SELL_ACTIONS:
                 _apply_simulated_trade(
                     conn,
                     resolved_lane,
                     decision.symbol,
                     action,
-                    decision.amount_usd,
+                    resolved_amount,
                     decision.fill_price,
                 )
 

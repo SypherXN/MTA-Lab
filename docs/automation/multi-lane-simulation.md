@@ -55,7 +55,7 @@ Promotion also:
    ```
    See [agent-plans.md](../agent-plans.md).
 2. Create three lanes via `POST /api/admin/lanes`, each with a distinct `plan_version` (and matching `strategy_version`).
-3. Run automations with `lane_id=1`, `2`, `3` (staggered crons recommended on OCI).
+3. Run automations with `lane_id=1`, `2`, `3` (and explorer/reddit ids). Staggered crons recommended on OCI.
 4. Optionally run the [ticker scout](./ticker-scout-prompt.md) weekly so discovery_pool stays fresh.
 5. Compare via **Lane Comparison**, **Paper Portfolio Comparison**, and **Agent Plans** in the dashboard.
 6. Promote the winner: `POST /api/admin/lanes/{id}/promote-to-live` with RH baseline.
@@ -159,8 +159,10 @@ Set `MTA_SEQUENTIAL_LANES=true` on the API. Use **one cron**; you may keep separ
 | Automation | Env / prompt | Lane |
 |------------|--------------|------|
 | Lane runner (primary) | `MTA_LANE_ID=1` | primary |
-| Lane runner (challenger A) | `MTA_LANE_ID=2` | shadow |
-| Lane runner (challenger B) | `MTA_LANE_ID=3` | shadow |
+| Lane runner (challenger A) | `MTA_LANE_ID=2` | technical-trend |
+| Lane runner (challenger B) | `MTA_LANE_ID=3` | news-event |
+| `mta-explorer` | explorer lane id | ticker-explorer |
+| `mta-reddit` | reddit lane id | reddit-research |
 
 All can share the same schedule; the API ensures only one lane executes per cycle.
 

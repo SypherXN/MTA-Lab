@@ -8,6 +8,7 @@ from app.integration_service import import_quotes, import_robinhood_orders, inge
 from app.live_promotion_service import approve_live_promotion, request_live_promotion
 from app.maintenance_service import run_maintenance
 from app.news_service import ingest_news_events
+from app.reddit_service import fetch_reddit_research, ingest_reddit_research
 from app.retention_service import run_retention
 from app.schemas import (
     AlertDispatchResponse,
@@ -19,6 +20,7 @@ from app.schemas import (
     MaintenanceRunOut,
     NewsEventImportRequest,
     NewsEventImportResponse,
+    RedditResearchOut,
     PortfolioResetResponse,
     PriceAlertWebhook,
     QuoteImportRequest,
@@ -46,6 +48,7 @@ from app.schemas import (
 
 from app.lane_service import (
     create_lane,
+    get_strategy_for_lane,
     list_lanes,
     promote_lane_to_live,
     reset_lane_portfolio,
@@ -266,6 +269,38 @@ def news_import(payload: NewsEventImportRequest) -> NewsEventImportResponse:
         inserted, skipped = ingest_news_events(conn, payload.events)
         conn.commit()
         return NewsEventImportResponse(inserted=inserted, skipped=skipped)
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@router.post("/reddit/ingest", response_model=RedditResearchOut, dependencies=[WriteKeyDep])
+def reddit_ingest(
+    lane_id: int | None = None,
+    subreddits: str | None = None,
+    limit: int = Query(default=25, ge=1, le=50),
+) -> RedditResearchOut:
+    conn = get_connection()
+    try:
+        allowed: list[str] | None = None
+        if lane_id is not None:
+            allowed = get_strategy_for_lane(conn, lane_id).rules.allowed_symbols
+        else:
+            from app.safety import get_active_strategy
+
+            allowed = get_active_strategy(conn).rules.allowed_symbols
+        research = fetch_reddit_research(
+            subreddits=subreddits,
+            limit=limit,
+            allowed_symbols=allowed,
+        )
+        inserted, skipped = ingest_reddit_research(conn, research)
+        conn.commit()
+        research.ingested = inserted
+        research.skipped = skipped
+        return research
     except Exception:
         conn.rollback()
         raise

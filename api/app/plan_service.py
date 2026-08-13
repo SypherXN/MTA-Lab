@@ -336,6 +336,14 @@ def _load_plan_file(path) -> tuple[str, str, AgentPlanPayload, bool, str]:
             payload_data["stop_conditions"] = list(payload_data.get("stop_conditions") or []) + list(
                 raw["stop_conditions_extra"]
             )
+        if "data_sources_extra" in raw:
+            payload_data["data_sources"] = list(payload_data.get("data_sources") or []) + list(
+                raw["data_sources_extra"]
+            )
+        if "required_inputs_extra" in raw:
+            payload_data["required_inputs"] = list(payload_data.get("required_inputs") or []) + list(
+                raw["required_inputs_extra"]
+            )
 
     payload = AgentPlanPayload.model_validate(payload_data)
     return version, name, payload, make_active, change_source

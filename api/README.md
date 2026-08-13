@@ -105,7 +105,9 @@ python scripts/seed_sample_run.py
 | POST | `/api/admin/symbol-proposals/promote` | `X-API-Key` | Promote proposals into allowed_symbols + discovery_pool |
 | POST | `/api/admin/symbol-proposals/auto-promote` | `X-API-Key` | Auto-promote top pending proposals by score |
 | POST | `/api/admin/symbol-proposals/{id}/dismiss` | `X-API-Key` | Dismiss a pending proposal |
-| GET | `/api/automation/news` | Read* | News/event summaries for agent (`symbol`, `since` filters) |
+| GET | `/api/automation/news` | Read* | News/event summaries (`symbol`, `since`, `source` filters) |
+| GET | `/api/automation/reddit` | Read* | Public Reddit finance listings + ticker mentions |
+| POST | `/api/admin/reddit/ingest` | `X-API-Key` | Fetch Reddit listings and store as news events |
 | GET | `/api/dashboard/usage` | Read* | Cursor usage rows |
 | GET | `/api/dashboard/usage/summary` | Read* | Cost aggregates by day, model, run type |
 | PATCH | `/api/dashboard/strategy` | Session/write* | Update mode, kill switch, trading enabled, caps |
@@ -125,6 +127,7 @@ python scripts/seed_sample_run.py
 | POST | `/api/admin/portfolio/reset` | `X-API-Key` | Reset simulated cash/positions to defaults |
 | POST | `/api/admin/quotes/import` | `X-API-Key` | Upsert quote cache for portfolio marks |
 | POST | `/api/admin/news/import` | `X-API-Key` | Ingest news/event summaries (dedup by source + external_id) |
+| POST | `/api/admin/reddit/ingest` | `X-API-Key` | Fetch public Reddit listings and store as news events |
 | POST | `/api/admin/robinhood-orders/import` | `X-API-Key` | Sync Robinhood orders; auto-link by `order_id` |
 | POST | `/api/admin/webhooks/price-alert` | `X-API-Key` | Ingest external alert; sets `check_needed` in context |
 | POST | `/api/admin/alerts/reconciliation-check` | `X-API-Key` | Dispatch reconciliation alert webhook if mismatches exist |

@@ -6,10 +6,26 @@ import sqlite3
 from app.schemas import DecisionIn, RunCreate, SafetySnapshotOut, StrategyOut, StrategyRules, SymbolCooldownOut
 
 LIVE_ACTIONS = {"buy", "sell", "place_buy", "place_sell"}
-SIMULATED_ACTIONS = {"simulated_buy", "simulated_sell", "paper_buy", "paper_sell"}
+SIMULATED_BUY_ACTIONS = {"simulated_buy", "paper_buy", "simulated_add"}
+SIMULATED_SELL_ACTIONS = {
+    "simulated_sell",
+    "paper_sell",
+    "simulated_trim",
+    "simulated_stop",
+    "simulated_take_profit",
+    "simulated_flatten",
+}
+SIMULATED_ACTIONS = SIMULATED_BUY_ACTIONS | SIMULATED_SELL_ACTIONS
 TRADE_ACTIONS = LIVE_ACTIONS | SIMULATED_ACTIONS
-BUY_ACTIONS = {"buy", "place_buy", "simulated_buy", "paper_buy"}
+BUY_ACTIONS = {"buy", "place_buy"} | SIMULATED_BUY_ACTIONS
+SELL_ACTIONS = {"sell", "place_sell"} | SIMULATED_SELL_ACTIONS
 PASSIVE_ACTIONS = {"hold", "skip", "no_action", "review_only", "error"}
+
+
+def sql_quoted_actions(actions: set[str]) -> str:
+    if not actions:
+        return "NULL"
+    return ", ".join("'" + action.replace("'", "''") + "'" for action in sorted(actions))
 
 RUN_STATUS_COMPLETED = "completed"
 RUN_STATUS_FAILED = "failed"
@@ -148,18 +164,17 @@ def get_daily_trade_usage(conn: sqlite3.Connection, lane_id: int | None = None) 
         lane_filter = " AND r.lane_id = ?"
         params.append(lane_id)
 
+    buy_list = sql_quoted_actions(BUY_ACTIONS)
+    trade_list = sql_quoted_actions(TRADE_ACTIONS)
     row = conn.execute(
         f"""
         SELECT
             COUNT(*) AS trade_count,
-            COALESCE(SUM(d.amount_usd), 0) AS notional
+            COALESCE(SUM(CASE WHEN lower(d.action) IN ({buy_list}) THEN d.amount_usd ELSE 0 END), 0) AS notional
         FROM decisions d
         JOIN automation_runs r ON r.id = d.run_id
         WHERE date(r.run_at) = date(?)
-          AND lower(d.action) IN (
-              'buy', 'sell', 'place_buy', 'place_sell',
-              'simulated_buy', 'simulated_sell', 'paper_buy', 'paper_sell'
-          )
+          AND lower(d.action) IN ({trade_list})
           {lane_filter}
         """,
         tuple(params),
@@ -256,7 +271,11 @@ def validate_run_decisions(
         if decision.symbol.upper() not in {s.upper() for s in strategy.rules.allowed_symbols}:
             violations.append(f"Symbol {decision.symbol} is not in allowed_symbols")
 
-        if decision.amount_usd is not None and decision.amount_usd > strategy.rules.max_order_usd:
+        if (
+            action in BUY_ACTIONS
+            and decision.amount_usd is not None
+            and decision.amount_usd > strategy.rules.max_order_usd
+        ):
             violations.append(
                 f"Decision for {decision.symbol} exceeds max_order_usd ({decision.amount_usd})"
             )
@@ -268,7 +287,8 @@ def validate_run_decisions(
                 )
 
         projected_trades += 1
-        projected_notional += decision.amount_usd or 0
+        if action in BUY_ACTIONS:
+            projected_notional += decision.amount_usd or 0
 
     if projected_trades > strategy.rules.max_daily_trades:
         violations.append("Run would exceed max_daily_trades")

@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     plans_repo_dir: str = ""
     scout_auto_promote_min_score: float = 0.65
     scout_auto_promote_max_symbols: int = 8
+    reddit_user_agent: str = "web:mta-lab:1.0 (research; +https://mta.matthewgtran.com)"
+    reddit_subreddits: str = "wallstreetbets,stocks,investing,StockMarket,earnings"
 
     @property
     def read_auth_enabled(self) -> bool:

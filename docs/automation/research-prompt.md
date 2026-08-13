@@ -107,7 +107,7 @@ Treat the API `plan`, `strategy`, and `safety` objects as authoritative.
 - If `kill_switch` is true, never call `place_equity_order`.
 - Respect `allowed_symbols`, `max_order_usd`, `max_daily_trades`, and `max_daily_notional_usd`.
 - When symbol discovery is enabled, extra research symbols must come from `symbol_discovery.candidate_pool` and stay within `discovery_max_per_run`.
-- Respect `cooldowns` in context — do not log buy/simulated_buy on symbols still in cooldown.
+- Respect `cooldowns` in context — do not log buy/simulated_buy/simulated_add on symbols still in cooldown.
 - If `require_review_before_place` is true, include `review_output` for any live trade decision.
 - If unsure, choose `hold` or `skip` and explain why.
 
@@ -115,8 +115,10 @@ Treat the API `plan`, `strategy`, and `safety` objects as authoritative.
 
 Default mode is research with fake-money tracking. See [simulation-discipline.md](../simulation-discipline.md).
 
-- Use `simulated_buy` / `simulated_sell` (not `buy`/`sell`) so the API updates the paper portfolio.
-- Include `amount_usd` and `fill_price` on every simulated trade when quotes are available.
+- Use `simulated_*` paper actions (not live `buy`/`sell`) so the API updates the paper portfolio.
+- Include `fill_price` on every simulated trade when quotes are available.
+- Include `amount_usd` on entries and adds. Sells may omit `amount_usd` to flatten the whole position, or set `percent_of_position` (0–1) to trim.
+- Optional `stop_price` / `target_price` on entries so later runs can act.
 - Failed runs must not include simulated or live trade decisions.
 - Portfolio snapshots and equity curves come from completed runs only.
 - Live promotion requires preflight + token approval (`GET /api/automation/live-promotion/status`).
@@ -138,11 +140,26 @@ Check `usage_budget` in context before expanding run depth. See [cost-aware-rout
 
 Use these action values in the POST body:
 
-- `hold`
-- `skip`
-- `simulated_buy`
-- `simulated_sell`
+**Passive**
+- `hold` — thesis intact; keep the current lot (or stay in cash)
+- `skip` — do not enter; no position (or not analyzing this name)
+
+**Paper entries / adds** (spend cash; count toward daily notional and buy cooldown)
+- `simulated_buy` — new long
+- `simulated_add` — add to an existing winner / scale in
+
+**Paper exits / risk** (return cash; do **not** count toward daily notional; not blocked by max_order_usd)
+- `simulated_trim` — sell a portion (`amount_usd` or `percent_of_position`)
+- `simulated_take_profit` — lock gains
+- `simulated_stop` — thesis broken or loss vs avg cost
+- `simulated_flatten` — exit the entire position (`amount_usd` optional)
+- `simulated_sell` — generic sell (same bookkeeping as trim/flatten)
+
 - `buy` / `sell` only when live trading is explicitly allowed
+
+**Every run:** review open positions first. Do not buy a name and hold it forever. Sitting in cash is allowed.
+
+Listed options (calls/puts) are not supported on these paper lanes.
 
 ## POST body shape
 
@@ -185,7 +202,7 @@ Use these action values in the POST body:
 ## Notes
 
 - Log every run even when no trades are recommended.
-- Prefer `simulated_buy` / `simulated_sell` in research mode so the API updates the paper portfolio.
+- Prefer `simulated_*` paper actions in research mode so the API updates the paper portfolio.
 - Do not use computer use or browser automation unless explicitly needed.
 
 ## Failed runs

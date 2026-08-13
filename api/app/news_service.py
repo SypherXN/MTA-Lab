@@ -86,6 +86,7 @@ def list_news_events(
     *,
     symbol: str | None = None,
     since: str | None = None,
+    source: str | None = None,
     limit: int = 50,
 ) -> list[NewsEventOut]:
     clauses: list[str] = []
@@ -97,6 +98,9 @@ def list_news_events(
     if since:
         clauses.append("event_at >= ?")
         params.append(since)
+    if source:
+        clauses.append("lower(source) = lower(?)")
+        params.append(source)
 
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     params.append(limit)

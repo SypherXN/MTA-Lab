@@ -7,9 +7,7 @@ from app.decision_utils import DECISION_SELECT_ALIASED, DECISION_SELECT_COLUMNS,
 from app.news_service import list_news_events
 from app.integration_service import _get_quote_map, mark_position_with_quotes
 from app.lane_service import get_strategy_for_lane, resolve_lane_id
-from app.safety import BUY_ACTIONS, get_active_symbol_cooldowns
-
-SELL_ACTIONS = {"sell", "place_sell", "simulated_sell", "paper_sell"}
+from app.safety import BUY_ACTIONS, SELL_ACTIONS, get_active_symbol_cooldowns
 from app.schemas import (
     ManualNoteOut,
     MarketSignalOut,

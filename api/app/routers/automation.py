@@ -4,6 +4,7 @@ from app.auth import ReadKeyDep, WriteKeyDep
 from app.database import get_connection
 from app.freshness_service import evaluate_freshness
 from app.news_service import ingest_news_events, list_news_events
+from app.reddit_service import fetch_reddit_research, ingest_reddit_research
 from app.symbol_discovery_service import build_symbol_discovery
 from app.symbol_proposal_service import list_symbol_proposals
 from app.intervention_service import evaluate_intervention
@@ -41,6 +42,7 @@ from app.schemas import (
     LaneTurnOut,
     MarketInputBundleOut,
     NewsEventOut,
+    RedditResearchOut,
     SymbolDiscoveryOut,
 )
 from app.services import (
@@ -168,13 +170,44 @@ def automation_market_inputs() -> MarketInputBundleOut:
 def automation_news(
     symbol: str | None = None,
     since: str | None = None,
+    source: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
 ) -> list[NewsEventOut]:
     conn = get_connection()
     try:
-        return list_news_events(conn, symbol=symbol, since=since, limit=limit)
+        return list_news_events(
+            conn, symbol=symbol, since=since, source=source, limit=limit
+        )
     finally:
         conn.close()
+
+
+@router.get(
+    "/reddit",
+    response_model=RedditResearchOut,
+    dependencies=[ReadKeyDep],
+)
+def automation_reddit(
+    lane_id: int | None = None,
+    subreddits: str | None = None,
+    limit: int = Query(default=25, ge=1, le=50),
+) -> RedditResearchOut:
+    conn = get_connection()
+    try:
+        allowed: list[str] | None = None
+        if lane_id is not None:
+            from app.lane_service import get_strategy_for_lane
+
+            allowed = get_strategy_for_lane(conn, lane_id).rules.allowed_symbols
+        else:
+            allowed = get_active_strategy(conn).rules.allowed_symbols
+    finally:
+        conn.close()
+    return fetch_reddit_research(
+        subreddits=subreddits,
+        limit=limit,
+        allowed_symbols=allowed,
+    )
 
 
 @router.get("/context", response_model=AutomationContextOut, dependencies=[ReadKeyDep])

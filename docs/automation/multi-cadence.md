@@ -8,7 +8,7 @@ Run separate Cursor Automations instead of one large all-purpose job. Each sched
 |------------|---------|------------|---------|
 | _(VM cron)_ | Weekdays every 30 min | _(none — ingest only)_ | `ingest_quotes.py` → shared quote cache (see [quotes-ingestion-setup.md](./quotes-ingestion-setup.md)) |
 | `mta-news` | Weekdays ~6:00 AM local (before research) | _(none — ingest only)_ | Shared headlines + earnings → `POST /api/admin/news/import` |
-| `mta-daily-research` | Weekdays ~30 min after open | `daily_research` | Full research run: plan, context, market inputs, news, symbol memory, decisions |
+| `mta-reddit` | Weekdays late morning (offset) | `daily_research` | Reddit-research lane: ingest public listings, confirm with quotes |
 | `mta-intraday-watch` | Hourly during market hours | `signal_response` | Lightweight watchlist check when `check_needed` signals exist |
 | `mta-post-market` | Weekdays after close | `post_market_review` | Summarize day, sync orders, reconciliation focus |
 | `mta-reconciliation` | Daily evening | `reconciliation_only` | Import Robinhood orders, run reconciliation alert check |

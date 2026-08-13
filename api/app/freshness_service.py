@@ -13,6 +13,7 @@ KNOWN_SOURCES = (
     "market_signals",
     "symbol_memory",
     "news",
+    "reddit",
 )
 
 # Max age before a source is considered stale for agent decisions.
@@ -25,6 +26,7 @@ STALE_AFTER_MINUTES: dict[str, int] = {
     "market_signals": 1440,
     "symbol_memory": 2880,
     "news": 1440,
+    "reddit": 360,
 }
 
 REQUIRED_FOR_ANALYSIS = ("quotes", "portfolio", "automation_runs")

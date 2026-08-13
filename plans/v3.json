@@ -69,7 +69,7 @@
     {
       "step": 10,
       "action": "analyze",
-      "description": "Catalyst-first analysis: require a clear news/earnings/macro reason for simulated_buy. Technical scores confirm tape is not hostile. Skip symbols with no material catalyst; hold existing positions unless news turns negative.",
+      "description": "Catalyst-first analysis: manage open positions if news turns (stop/flatten/take-profit). Require a clear news/earnings/macro reason for simulated_buy. Technical scores confirm tape is not hostile. Skip symbols with no material catalyst.",
       "required": true
     },
     {

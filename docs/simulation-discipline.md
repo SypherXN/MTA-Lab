@@ -5,26 +5,28 @@ MTA-Lab defaults to **research mode**: the agent logs decisions and the API trac
 ## Default behavior
 
 - Strategy mode: `research`
-- Allowed trade actions: `simulated_buy`, `simulated_sell`, `hold`, `skip`
+- Allowed trade actions: `simulated_buy`, `simulated_add`, `simulated_sell`, `simulated_trim`, `simulated_stop`, `simulated_take_profit`, `simulated_flatten`, `hold`, `skip`
 - Simulated starting cash: `MTA_INITIAL_SIMULATED_CASH` (default $10,000)
 - Portfolio snapshots recorded on each **completed** run
 
 ## Simulated trade rules
 
-When logging `simulated_buy` or `simulated_sell`:
+When logging a paper trade (`simulated_buy`, `simulated_add`, `simulated_sell`, `simulated_trim`, `simulated_stop`, `simulated_take_profit`, `simulated_flatten`):
 
 1. **Symbol** must be in `allowed_symbols` (strategy rules).
-2. **Amount** must respect `max_order_usd` and daily notional caps.
-3. **Cooldown** — do not buy a symbol still in cooldown from a prior buy.
-4. **Fill price** — include `fill_price` from quotes or review when available. If omitted, the API uses the cached quote price.
-5. **Shares** — computed as `amount_usd / fill_price`; cash and positions update atomically on run commit.
+2. **Amount** — entries/adds must respect `max_order_usd` and daily **buy** notional caps. Exits are not capped by `max_order_usd` (you may flatten a winner that grew past the cap).
+3. **Cooldown** — do not buy/add a symbol still in cooldown from a prior buy.
+4. **Fill price** — include `fill_price` from quotes or review when available. If omitted on a buy, the API uses the cached quote price. Sells require `fill_price`.
+5. **Shares** — computed as `amount_usd / fill_price`; cash and positions update atomically on run commit. Omit `amount_usd` on a sell to flatten the whole lot, or set `percent_of_position` (0–1) to trim.
 
 ## Fill assumptions
 
 | Field | Rule |
 |-------|------|
 | `fill_price` | Required for accurate P&L; prefer quote at decision time |
-| `amount_usd` | Notional USD for the simulated leg |
+| `amount_usd` | Notional USD for the simulated leg. Optional on full exits (`simulated_flatten` / stop / take-profit). |
+| `percent_of_position` | Optional 0–1 fraction to sell |
+| `stop_price` / `target_price` | Optional levels recorded on the decision |
 | Slippage | Not modeled — fills at stated price |
 | Partial fills | Not modeled — full notional applied |
 

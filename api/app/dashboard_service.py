@@ -20,6 +20,7 @@ from app.schemas import (
 )
 from app.cursor_pricing import build_usage_import_key, effective_cost_usd, estimate_token_cost_usd
 from app.usage_relink_service import UsageRelinkResult, relink_cursor_usage
+from app.safety import LIVE_ACTIONS, PASSIVE_ACTIONS, SIMULATED_ACTIONS, sql_quoted_actions
 from app.snapshot_service import get_portfolio_snapshot_summary, get_portfolio_snapshots
 
 EFFECTIVE_COST_SQL = "COALESCE(NULLIF(cost_usd, 0), estimated_cost_usd, 0)"
@@ -81,21 +82,21 @@ def get_dashboard_stats(conn: sqlite3.Connection) -> DashboardStatsOut:
     ).fetchone()["c"]
     total_decisions = conn.execute("SELECT COUNT(*) AS c FROM decisions").fetchone()["c"]
     simulated_trades = conn.execute(
-        """
+        f"""
         SELECT COUNT(*) AS c FROM decisions
-        WHERE lower(action) IN ('simulated_buy', 'simulated_sell', 'paper_buy', 'paper_sell')
+        WHERE lower(action) IN ({sql_quoted_actions(SIMULATED_ACTIONS)})
         """
     ).fetchone()["c"]
     live_trades = conn.execute(
-        """
+        f"""
         SELECT COUNT(*) AS c FROM decisions
-        WHERE lower(action) IN ('buy', 'sell', 'place_buy', 'place_sell')
+        WHERE lower(action) IN ({sql_quoted_actions(LIVE_ACTIONS)})
         """
     ).fetchone()["c"]
     holds = conn.execute(
-        """
+        f"""
         SELECT COUNT(*) AS c FROM decisions
-        WHERE lower(action) IN ('hold', 'skip', 'no_action')
+        WHERE lower(action) IN ({sql_quoted_actions(PASSIVE_ACTIONS)})
         """
     ).fetchone()["c"]
     total_cost = conn.execute(

@@ -1,5 +1,6 @@
 import sqlite3
 
+from app.safety import PASSIVE_ACTIONS, SIMULATED_ACTIONS, sql_quoted_actions
 from app.schemas import StrategyPerformanceOut, StrategyPerformanceSliceOut
 
 
@@ -47,9 +48,11 @@ def get_strategy_performance(
         SELECT COUNT(*) AS total,
                AVG(confidence) AS avg_confidence,
                SUM(CASE WHEN lower(action) IN (
-                   'simulated_buy','simulated_sell','paper_buy','paper_sell'
+                   {sql_quoted_actions(SIMULATED_ACTIONS)}
                ) THEN 1 ELSE 0 END) AS simulated_trades,
-               SUM(CASE WHEN lower(action) IN ('hold','skip','no_action') THEN 1 ELSE 0 END) AS passive
+               SUM(CASE WHEN lower(action) IN (
+                   {sql_quoted_actions(PASSIVE_ACTIONS)}
+               ) THEN 1 ELSE 0 END) AS passive
         FROM decisions
         WHERE {decision_where}
         """,

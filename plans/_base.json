@@ -121,7 +121,7 @@
     {
       "id": "research_simulation",
       "priority": "critical",
-      "rule": "In research/paper mode use simulated_buy/simulated_sell; never place_equity_order unless trading_allowed."
+      "rule": "In research/paper mode use simulated_* actions (buy, add, sell, trim, stop, take_profit, flatten); never place_equity_order unless trading_allowed."
     },
     {
       "id": "use_market_input_bundle",
@@ -156,12 +156,17 @@
     {
       "id": "respect_cooldowns",
       "priority": "high",
-      "rule": "Do not log buy/simulated_buy on symbols listed in api_context.cooldowns."
+      "rule": "Do not log buy/simulated_buy/simulated_add on symbols listed in api_context.cooldowns."
     },
     {
       "id": "simulation_discipline",
       "priority": "high",
-      "rule": "In research mode use simulated_buy/simulated_sell with fill_price and amount_usd; never live buy/sell unless safety.trading_allowed."
+      "rule": "In research mode use simulated_* paper actions with fill_price; include amount_usd on entries and adds. Sells may omit amount_usd to flatten the whole position. Never live buy/sell unless safety.trading_allowed."
+    },
+    {
+      "id": "active_position_management",
+      "priority": "critical",
+      "rule": "Every run must review open paper positions. Do not default to buy-and-hold. Use simulated_trim (scale out), simulated_add (scale in), simulated_stop (thesis broken or ~8%+ loss vs avg_cost), simulated_take_profit (lock gains / ~12%+ winner), or simulated_flatten (exit). Hold is valid only when the original thesis still holds and risk is acceptable. Sitting in cash is allowed."
     },
     {
       "id": "run_budget_guardrails",
