@@ -235,4 +235,17 @@ MIGRATIONS: dict[str, str] = {
         -- Applied via ALTER in Python when column missing; placeholder for tracking.
         SELECT 1;
     """,
+    "017_quote_history": """
+        CREATE TABLE IF NOT EXISTS quote_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol TEXT NOT NULL,
+            observed_at TEXT NOT NULL,
+            price_usd REAL NOT NULL,
+            source TEXT NOT NULL DEFAULT 'import',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(symbol, observed_at)
+        );
+        CREATE INDEX IF NOT EXISTS idx_quote_history_symbol_at
+            ON quote_history(symbol, observed_at);
+    """,
 }

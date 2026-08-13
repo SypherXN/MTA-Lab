@@ -44,6 +44,15 @@ def upsert_quotes(conn: sqlite3.Connection, quotes: list[QuoteImportRow]) -> int
             """,
             (symbol, quote.price_usd, quote.source, now),
         )
+        from app.quote_history_service import record_quote_history
+
+        record_quote_history(
+            conn,
+            symbol=symbol,
+            price_usd=quote.price_usd,
+            source=quote.source,
+            observed_at=now,
+        )
         upserted += 1
     if upserted:
         from app.freshness_service import touch_data_source

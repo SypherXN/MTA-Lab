@@ -3,6 +3,8 @@
 import sqlite3
 
 from app.lane_service import get_lane, list_lanes
+from app.market_compare_service import lane_market_window
+from app.quote_history_service import DEFAULT_BENCHMARK, ensure_benchmark_history
 from app.schemas import LaneCompareOut, LaneCompareRowOut
 from app.snapshot_service import get_lane_equity_change
 
@@ -12,11 +14,17 @@ def compare_lanes(
     *,
     lane_ids: list[int] | None = None,
     since: str | None = None,
+    benchmark: str = DEFAULT_BENCHMARK,
 ) -> LaneCompareOut:
     if lane_ids:
         lanes = [get_lane(conn, lid) for lid in lane_ids]
     else:
         lanes = [lane for lane in list_lanes(conn) if lane.status == "active"]
+
+    try:
+        ensure_benchmark_history(conn, symbols=(benchmark.upper().strip(),))
+    except Exception:
+        pass
 
     rows: list[LaneCompareRowOut] = []
     for lane in lanes:
@@ -58,6 +66,9 @@ def compare_lanes(
         ).fetchone()
 
         equity_change = get_lane_equity_change(conn, lid, since=since)
+        lane_pct, market_pct, excess_pct = lane_market_window(
+            conn, lid, since=since, benchmark=benchmark
+        )
 
         rows.append(
             LaneCompareRowOut(
@@ -73,8 +84,11 @@ def compare_lanes(
                 simulated_trades=int(decision_stats["simulated_trades"] or 0),
                 avg_confidence=decision_stats["avg_confidence"],
                 equity_change_usd=equity_change,
+                equity_change_pct=lane_pct,
+                market_return_pct=market_pct,
+                excess_return_pct=excess_pct,
                 total_cost_usd=float(cost_row["total"] or 0),
             )
         )
 
-    return LaneCompareOut(since=since, lanes=rows)
+    return LaneCompareOut(since=since, benchmark_symbol=benchmark.upper().strip(), lanes=rows)

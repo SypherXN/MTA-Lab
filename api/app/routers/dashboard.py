@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
 from app.lane_compare_service import compare_lanes
+from app.market_compare_service import compare_lanes_vs_market
 from app.lane_service import list_lanes
 from app.live_history_service import get_live_trading_history
 from app.compare_service import compare_strategy_versions
@@ -37,6 +38,7 @@ from app.schemas import (
     RunSummaryOut,
     LaneCompareOut,
     LaneOut,
+    LanesVsMarketOut,
     LiveTradingHistoryOut,
     StrategyCompareOut,
     StrategyOut,
@@ -275,13 +277,34 @@ def dashboard_lanes() -> list[LaneOut]:
 def dashboard_lanes_compare(
     lane_ids: str | None = None,
     since: str | None = None,
+    benchmark: str = "SPY",
 ) -> LaneCompareOut:
     conn = get_connection()
     try:
         parsed_ids = None
         if lane_ids:
             parsed_ids = [int(part.strip()) for part in lane_ids.split(",") if part.strip()]
-        return compare_lanes(conn, lane_ids=parsed_ids, since=since)
+        return compare_lanes(conn, lane_ids=parsed_ids, since=since, benchmark=benchmark)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
+@router.get("/lanes/vs-market", response_model=LanesVsMarketOut)
+def dashboard_lanes_vs_market(
+    lane_ids: str | None = None,
+    since: str | None = None,
+    benchmark: str = "SPY",
+) -> LanesVsMarketOut:
+    conn = get_connection()
+    try:
+        parsed_ids = None
+        if lane_ids:
+            parsed_ids = [int(part.strip()) for part in lane_ids.split(",") if part.strip()]
+        return compare_lanes_vs_market(
+            conn, lane_ids=parsed_ids, since=since, benchmark=benchmark
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:

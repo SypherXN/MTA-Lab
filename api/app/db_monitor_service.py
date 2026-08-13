@@ -14,6 +14,7 @@ MONITORED_TABLES = (
     "alerts",
     "robinhood_orders",
     "news_event_summaries",
+    "quote_history",
 )
 
 

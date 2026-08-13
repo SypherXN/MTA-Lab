@@ -9,6 +9,7 @@ TEST_DB = Path(tempfile.gettempdir()) / "mta_lab_test.db"
 os.environ["MTA_DATABASE_PATH"] = str(TEST_DB)
 os.environ["MTA_WRITE_API_KEY"] = "test-key"
 os.environ["MTA_RATE_LIMIT_ENABLED"] = "false"
+os.environ["MTA_SKIP_BENCHMARK_BACKFILL"] = "true"
 
 if TEST_DB.exists():
     TEST_DB.unlink()

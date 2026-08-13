@@ -117,7 +117,8 @@ python scripts/seed_sample_run.py
 | PATCH | `/api/dashboard/alerts/{id}` | Session/write* | Acknowledge or resolve an alert |
 | GET | `/api/dashboard/strategy/compare` | Read* | Compare strategy/plan versions (runs, trades, cost, equity) |
 | GET | `/api/dashboard/lanes` | Read* | List simulation lanes |
-| GET | `/api/dashboard/lanes/compare` | Read* | Head-to-head lane metrics (`lane_ids=1,2`) |
+| GET | `/api/dashboard/lanes/compare` | Read* | Head-to-head lane metrics (`lane_ids=1,2`, `benchmark=SPY`) |
+| GET | `/api/dashboard/lanes/vs-market` | Read* | Lane paper returns vs buy-and-hold SPY/QQQ over snapshot dates |
 | GET | `/api/dashboard/lanes/live-history` | Read* | Combined real-money history across live stints |
 | GET | `/api/dashboard/status/mobile` | Read* | Compact mobile health snapshot |
 | POST | `/api/admin/cursor-usage/import` | `X-API-Key` | Backfill Cursor usage (auto-links `cursor_run_id`) |

@@ -163,6 +163,18 @@ CREATE TABLE IF NOT EXISTS quote_cache (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS quote_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    price_usd REAL NOT NULL,
+    source TEXT NOT NULL DEFAULT 'import',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(symbol, observed_at)
+);
+CREATE INDEX IF NOT EXISTS idx_quote_history_symbol_at
+    ON quote_history(symbol, observed_at);
+
 CREATE TABLE IF NOT EXISTS market_signals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     signal_type TEXT NOT NULL DEFAULT 'price_alert',

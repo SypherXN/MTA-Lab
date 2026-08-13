@@ -1151,12 +1151,48 @@ class LaneCompareRowOut(BaseModel):
     simulated_trades: int
     avg_confidence: float | None = None
     equity_change_usd: float | None = None
+    equity_change_pct: float | None = None
+    market_return_pct: float | None = None
+    excess_return_pct: float | None = None
     total_cost_usd: float
 
 
 class LaneCompareOut(BaseModel):
     since: str | None = None
+    benchmark_symbol: str = "SPY"
     lanes: list[LaneCompareRowOut] = Field(default_factory=list)
+
+
+class MarketPointOut(BaseModel):
+    at: str
+    price_usd: float
+    return_pct: float | None = None
+
+
+class LaneMarketPointOut(BaseModel):
+    at: str
+    equity_usd: float
+    lane_return_pct: float | None = None
+    market_return_pct: float | None = None
+    excess_pct: float | None = None
+
+
+class LaneVsMarketSeriesOut(BaseModel):
+    lane_id: int
+    name: str
+    start_equity_usd: float | None = None
+    end_equity_usd: float | None = None
+    lane_return_pct: float | None = None
+    market_return_pct: float | None = None
+    excess_return_pct: float | None = None
+    points: list[LaneMarketPointOut] = Field(default_factory=list)
+
+
+class LanesVsMarketOut(BaseModel):
+    benchmark_symbol: str
+    benchmark_name: str
+    lanes: list[LaneVsMarketSeriesOut] = Field(default_factory=list)
+    benchmark_points: list[MarketPointOut] = Field(default_factory=list)
 
 
 class LaneResetResponse(BaseModel):

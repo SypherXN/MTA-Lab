@@ -146,8 +146,15 @@ def main() -> int:
             return 1
 
         upserted = upsert_quotes(conn, quotes)
+        from app.quote_history_service import ensure_benchmark_history
+
+        backfill = ensure_benchmark_history(conn)
         conn.commit()
-        print(f"ingested upserted={upserted} fetched={len(quotes)} symbols={len(symbols)}")
+        filled = ", ".join(f"{sym}={n}" for sym, n in backfill.items())
+        print(
+            f"ingested upserted={upserted} fetched={len(quotes)} symbols={len(symbols)} "
+            f"benchmark_backfill={filled or 'none'}"
+        )
         return 0
     finally:
         conn.close()

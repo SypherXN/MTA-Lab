@@ -131,7 +131,7 @@ POST /api/automation/runs  { "lane_id": 2, ... }
 curl "$API/api/dashboard/lanes/compare?lane_ids=1,2,3"
 ```
 
-Per-lane metrics include **lane-scoped** `equity_change_usd` from snapshots (not the global curve).
+Per-lane metrics include **lane-scoped** `equity_change_usd` from snapshots, plus **lane %**, **SPY %**, and **excess vs SPY** over the same dates. The paper comparison chart overlays each lane's return against buy-and-hold SPY. Historical SPY/QQQ closes are backfilled from Yahoo so past snapshots can be judged against the market, not only future runs.
 
 ### 4. Promote challenger to live
 

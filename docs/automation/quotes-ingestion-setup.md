@@ -27,6 +27,15 @@ python3 scripts/ingest_quotes.py --dry-run
 python3 scripts/ingest_quotes.py
 ```
 
+Each ingest also appends prices to `quote_history` and backfills daily SPY/QQQ/DIA closes so lane comparison can score paper books against the market, including past snapshot dates.
+
+One-shot historical backfill:
+
+```bash
+python3 scripts/backfill_benchmark_quotes.py
+python3 scripts/backfill_benchmark_quotes.py --force
+```
+
 ### Cron
 
 Append `api/deploy/quotes-ingest.cron.example` to the VM user crontab, or add:

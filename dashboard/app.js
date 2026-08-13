@@ -214,6 +214,20 @@ function formatMoney(value) {
   return `$${Number(value).toFixed(2)}`;
 }
 
+function formatPct(value) {
+  if (value == null || Number.isNaN(Number(value))) return "—";
+  const number = Number(value);
+  const sign = number > 0 ? "+" : "";
+  return `${sign}${number.toFixed(2)}%`;
+}
+
+function excessClass(value) {
+  if (value == null) return "";
+  if (value > 0) return "good";
+  if (value < 0) return "bad";
+  return "";
+}
+
 function formatScore(value) {
   if (value == null) return null;
   return Number(value);
@@ -477,6 +491,9 @@ function renderLaneCompare(compare) {
           <td>${lane.simulated_trades}</td>
           <td>${lane.avg_confidence != null ? Number(lane.avg_confidence).toFixed(2) : "—"}</td>
           <td>${formatMoney(lane.equity_change_usd)}</td>
+          <td>${formatPct(lane.equity_change_pct)}</td>
+          <td>${formatPct(lane.market_return_pct)}</td>
+          <td class="${excessClass(lane.excess_return_pct)}">${formatPct(lane.excess_return_pct)}</td>
           <td>${formatMoney(lane.total_cost_usd)}</td>
           <td><button type="button" class="link-btn" data-view-lane="${lane.lane_id}">View</button></td>
         </tr>
@@ -485,7 +502,7 @@ function renderLaneCompare(compare) {
     .join("");
   panel.innerHTML = `
     <table>
-      <thead><tr><th>Lane</th><th>Type</th><th>Strategy</th><th>Plan</th><th>Runs</th><th>Sim trades</th><th>Avg conf</th><th>Equity Δ</th><th>Cost</th><th></th></tr></thead>
+      <thead><tr><th>Lane</th><th>Type</th><th>Strategy</th><th>Plan</th><th>Runs</th><th>Sim trades</th><th>Avg conf</th><th>Equity Δ</th><th>Lane %</th><th>SPY %</th><th>vs SPY</th><th>Cost</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   `;
@@ -848,9 +865,19 @@ function renderEquityLaneControls(lanes, selectedIds, onChange) {
   });
 }
 
-function renderMultiEquityCurve(laneSeries) {
+function parseChartTime(value) {
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+function renderMultiEquityCurve(laneSeries, vsMarket) {
   const panel = document.getElementById("equity-curve-panel");
-  const seriesList = laneSeries.filter((s) => s.snapshots?.length);
+  const marketSeries = (vsMarket?.lanes || []).filter((series) => series.points?.length);
+  if (marketSeries.length) {
+    renderVsMarketCurve(vsMarket, marketSeries);
+    return;
+  }
+  const seriesList = (laneSeries || []).filter((s) => s.snapshots?.length);
   if (!seriesList.length) {
     panel.innerHTML =
       "<p>No portfolio snapshots yet. Snapshots are recorded per lane after each completed run.</p>";
@@ -907,7 +934,88 @@ function renderMultiEquityCurve(laneSeries) {
       <text x="${padX - 6}" y="${height - padY + 4}" class="chart-label">${formatMoney(minEquity)}</text>
       ${polylines}
     </svg>
-    <p class="muted">Overlay per-lane snapshot equity (select lanes above).</p>
+    <p class="muted">Overlay per-lane snapshot equity (select lanes above). Market history is not available yet.</p>
+  `;
+}
+
+function renderVsMarketCurve(vsMarket, marketSeries) {
+  const panel = document.getElementById("equity-curve-panel");
+  const width = 720;
+  const height = 240;
+  const padX = 52;
+  const padY = 28;
+  const plotWidth = width - padX * 2;
+  const plotHeight = height - padY * 2;
+  const spyColor = "#111827";
+
+  const times = [];
+  const values = [];
+  marketSeries.forEach((series) => {
+    series.points.forEach((point) => {
+      const t = parseChartTime(point.at);
+      if (t != null) times.push(t);
+      if (point.lane_return_pct != null) values.push(point.lane_return_pct);
+      if (point.market_return_pct != null) values.push(point.market_return_pct);
+    });
+  });
+  (vsMarket.benchmark_points || []).forEach((point) => {
+    const t = parseChartTime(point.at);
+    if (t != null) times.push(t);
+    if (point.return_pct != null) values.push(point.return_pct);
+  });
+  const minT = Math.min(...times);
+  const maxT = Math.max(...times);
+  const minV = Math.min(0, ...values);
+  const maxV = Math.max(0, ...values);
+  const rangeT = maxT - minT || 1;
+  const rangeV = maxV - minV || 1;
+
+  const xFor = (at) => {
+    const t = parseChartTime(at) ?? minT;
+    return padX + ((t - minT) / rangeT) * plotWidth;
+  };
+  const yFor = (pct) => padY + (1 - ((pct ?? 0) - minV) / rangeV) * plotHeight;
+
+  const laneLines = marketSeries
+    .map((series, seriesIndex) => {
+      const points = series.points
+        .filter((point) => parseChartTime(point.at) != null)
+        .map((point) => `${xFor(point.at).toFixed(1)},${yFor(point.lane_return_pct).toFixed(1)}`)
+        .join(" ");
+      const color = getLaneChartColor(series.lane_id, seriesIndex);
+      return `<polyline points="${points}" class="chart-line lane-line" style="stroke:${color}" />`;
+    })
+    .join("");
+
+  const spyPoints = (vsMarket.benchmark_points || [])
+    .filter((point) => parseChartTime(point.at) != null && point.return_pct != null)
+    .map((point) => `${xFor(point.at).toFixed(1)},${yFor(point.return_pct).toFixed(1)}`)
+    .join(" ");
+  const spyLine = spyPoints
+    ? `<polyline points="${spyPoints}" class="chart-line lane-line" style="stroke:${spyColor}" />`
+    : "";
+
+  const zeroY = yFor(0);
+  const legend = [
+    `<span style="color:${spyColor}">${vsMarket.benchmark_name || vsMarket.benchmark_symbol || "SPY"}</span>`,
+    ...marketSeries.map(
+      (series, index) =>
+        `<span style="color:${getLaneChartColor(series.lane_id, index)}">#${series.lane_id} ${series.name} (${formatPct(series.excess_return_pct)} vs SPY)</span>`
+    ),
+  ].join(" · ");
+
+  panel.innerHTML = `
+    <div class="equity-curve-meta">${legend}</div>
+    <svg class="equity-curve-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Lane returns versus SPY">
+      <line x1="${padX}" y1="${height - padY}" x2="${width - padX}" y2="${height - padY}" class="chart-axis" />
+      <line x1="${padX}" y1="${padY}" x2="${padX}" y2="${height - padY}" class="chart-axis" />
+      <line x1="${padX}" y1="${zeroY.toFixed(1)}" x2="${width - padX}" y2="${zeroY.toFixed(1)}" class="chart-axis" />
+      <text x="${padX - 6}" y="${padY + 4}" class="chart-label">${formatPct(maxV)}</text>
+      <text x="${padX - 6}" y="${height - padY + 4}" class="chart-label">${formatPct(minV)}</text>
+      ${spyLine}
+      ${laneLines}
+    </svg>
+    <p class="muted">Each lane line is paper return since that lane's first snapshot. SPY is buy-and-hold over the same dates.</p>
   `;
 }
 
@@ -1836,16 +1944,22 @@ async function loadEquityCurvesForLanes(lanes) {
   );
   const activeIds =
     selected.size > 0 ? [...selected] : lanes.filter((l) => l.status === "active").map((l) => l.id);
-  const series = await Promise.all(
-    activeIds.map(async (laneId) => {
-      const lane = lanes.find((l) => l.id === laneId);
-      const snapshots = await fetchJson(`/api/dashboard/portfolio/snapshots?lane_id=${laneId}&limit=200`).catch(
-        () => []
-      );
-      return { laneId, name: lane?.name || `lane-${laneId}`, snapshots };
-    })
-  );
-  renderMultiEquityCurve(series);
+  const laneQuery = activeIds.join(",");
+  const [series, vsMarket] = await Promise.all([
+    Promise.all(
+      activeIds.map(async (laneId) => {
+        const lane = lanes.find((l) => l.id === laneId);
+        const snapshots = await fetchJson(`/api/dashboard/portfolio/snapshots?lane_id=${laneId}&limit=200`).catch(
+          () => []
+        );
+        return { laneId, name: lane?.name || `lane-${laneId}`, snapshots };
+      })
+    ),
+    fetchJson(`/api/dashboard/lanes/vs-market?benchmark=SPY&lane_ids=${encodeURIComponent(laneQuery)}`).catch(
+      () => null
+    ),
+  ]);
+  renderMultiEquityCurve(series, vsMarket);
 }
 
 async function loadDashboard() {
