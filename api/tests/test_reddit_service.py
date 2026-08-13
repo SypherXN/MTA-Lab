@@ -65,6 +65,42 @@ class RedditFetchTests(unittest.TestCase):
         self.assertIn("NVDA", symbols)
         self.assertIn("SPY", symbols)
 
+    def test_falls_back_when_reddit_blocks(self):
+        blocked = MagicMock()
+        blocked.raise_for_status.side_effect = Exception("403 Blocked")
+        arctic = MagicMock()
+        arctic.raise_for_status = MagicMock()
+        arctic.json.return_value = {
+            "data": [
+                {
+                    "id": "abc1",
+                    "title": "$NVDA arctic fallback",
+                    "selftext": "",
+                    "score": 500,
+                    "upvote_ratio": 0.8,
+                    "num_comments": 12,
+                    "created_utc": 1700000000,
+                    "permalink": "/r/stocks/comments/abc1/x/",
+                    "subreddit": "stocks",
+                    "over_18": False,
+                }
+            ]
+        }
+
+        def fake_get(url, params=None, timeout=None):
+            if "arctic-shift" in str(url):
+                return arctic
+            return blocked
+
+        fake = MagicMock()
+        fake.get.side_effect = fake_get
+        with patch("app.reddit_service.httpx.Client") as client_cls:
+            client_cls.return_value.__enter__.return_value = fake
+            research = fetch_reddit_research(subreddits="stocks", limit=5, allowed_symbols=["NVDA"])
+        self.assertEqual(research.errors, [])
+        self.assertEqual(research.posts[0].title, "$NVDA arctic fallback")
+        self.assertIn("NVDA", {row.symbol for row in research.mentions})
+
 
 if __name__ == "__main__":
     unittest.main()

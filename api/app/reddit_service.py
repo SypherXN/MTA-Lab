@@ -23,6 +23,7 @@ DEFAULT_LIMIT = 25
 MAX_LIMIT = 50
 MAX_INGEST_EVENTS = 80
 REDDIT_JSON_URL = "https://www.reddit.com/r/{subreddit}/hot.json"
+ARCTIC_SHIFT_URL = "https://arctic-shift.photon-reddit.com/api/posts/search"
 
 CASHTAG_RE = re.compile(r"\$([A-Z]{1,5})\b")
 TICKER_STOPWORDS = {
@@ -102,6 +103,8 @@ def _child_to_post(child: dict, allowed: set[str] | None) -> RedditPostOut | Non
     data = child.get("data") if isinstance(child, dict) else None
     if not isinstance(data, dict):
         return None
+    if data.get("over_18"):
+        return None
     post_id = str(data.get("id") or "").strip()
     title = str(data.get("title") or "").strip()
     if not post_id or not title:
@@ -155,6 +158,52 @@ def _mentions_from_posts(posts: list[RedditPostOut]) -> list[RedditMentionOut]:
     return mentions
 
 
+def _should_fallback(error: str) -> bool:
+    lowered = error.lower()
+    return any(token in lowered for token in ("403", "401", "429", "blocked", "forbidden"))
+
+
+def _posts_from_listing(payload: object, allowed: set[str] | None) -> list[RedditPostOut]:
+    children = ((payload.get("data") or {}).get("children")) if isinstance(payload, dict) else None
+    if not isinstance(children, list):
+        return []
+    posts: list[RedditPostOut] = []
+    for child in children:
+        post = _child_to_post(child, allowed)
+        if post is not None:
+            posts.append(post)
+    return posts
+
+
+def _fetch_arctic_shift(
+    client: httpx.Client,
+    subreddit: str,
+    limit: int,
+    allowed: set[str] | None,
+) -> tuple[list[RedditPostOut], str | None]:
+    try:
+        response = client.get(
+            ARCTIC_SHIFT_URL,
+            params={"subreddit": subreddit, "limit": limit},
+            timeout=20.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as exc:
+        return [], f"{subreddit}: arctic-shift {exc}"
+    rows = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(rows, list):
+        return [], f"{subreddit}: arctic-shift unexpected JSON shape"
+    posts: list[RedditPostOut] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        post = _child_to_post({"data": row}, allowed)
+        if post is not None:
+            posts.append(post)
+    return posts, None
+
+
 def _fetch_subreddit(
     client: httpx.Client,
     subreddit: str,
@@ -167,16 +216,14 @@ def _fetch_subreddit(
         response.raise_for_status()
         payload = response.json()
     except Exception as exc:
-        return [], f"{subreddit}: {exc}"
-    children = ((payload.get("data") or {}).get("children")) if isinstance(payload, dict) else None
-    if not isinstance(children, list):
-        return [], f"{subreddit}: unexpected JSON shape"
-    posts: list[RedditPostOut] = []
-    for child in children:
-        post = _child_to_post(child, allowed)
-        if post is not None:
-            posts.append(post)
-    return posts, None
+        error = f"{subreddit}: {exc}"
+        if _should_fallback(error):
+            return _fetch_arctic_shift(client, subreddit, limit, allowed)
+        return [], error
+    posts = _posts_from_listing(payload, allowed)
+    if posts:
+        return posts, None
+    return _fetch_arctic_shift(client, subreddit, limit, allowed)
 
 
 def fetch_reddit_research(

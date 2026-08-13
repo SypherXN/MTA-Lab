@@ -84,7 +84,7 @@ Or append `api/deploy/reddit-ingest.cron.example`. The automation still calls `P
 | `POST /api/admin/reddit/ingest` | Same fetch + store as news events (`source=reddit`) |
 | `GET /api/automation/news?source=reddit` | Read stored mention summaries |
 
-User-Agent is `MTA_REDDIT_USER_AGENT` (default identifies MTA-Lab). Default subs: `MTA_REDDIT_SUBREDDITS`.
+User-Agent is `MTA_REDDIT_USER_AGENT` (default identifies MTA-Lab). Default subs: `MTA_REDDIT_SUBREDDITS`. If `reddit.com` blocks the VM (common from cloud IPs), the API falls back to the public Arctic Shift archive.
 
 **Out of scope:** logging into Reddit, scraping user inboxes, NSFW/CSAM, or browser automation.
 
