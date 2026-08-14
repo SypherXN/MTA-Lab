@@ -270,7 +270,7 @@ function renderExplainability(decision) {
   return `
     <div class="explain-block">
       ${renderScoreBars(decision.scores)}
-      <p><strong>Action:</strong> ${decision.action}</p>
+      <p><strong>Action:</strong> ${escapeHtml(formatActionLabel(decision.action))}</p>
       <p><strong>Reason:</strong> ${decision.reason}</p>
       <p><strong>Rationale:</strong> ${decision.action_rationale || "—"}</p>
       ${decision.review_output ? `<p><strong>Review:</strong> ${decision.review_output}</p>` : ""}
@@ -355,6 +355,68 @@ function laneRoleLabel(role) {
   if (role === "live") return "Live";
   if (role === "shadow") return "Shadow";
   return "Research";
+}
+
+const LANE_APPROACH = {
+  primary: "Balanced research",
+  "technical-trend": "Technical trend",
+  "news-event": "News / events",
+  "ticker-explorer": "Ticker discovery",
+  "reddit-research": "Reddit / social",
+  "options-research": "Options / mixed research",
+};
+
+const ACTION_LABELS = {
+  simulated_option_buy: "option BTO",
+  simulated_option_sell: "option STC",
+  simulated_option_write: "option write",
+  simulated_option_cover: "option cover",
+};
+
+function laneApproachName(name) {
+  return LANE_APPROACH[name] || name || "Lane";
+}
+
+function formatActionLabel(action) {
+  if (!action) return "—";
+  return ACTION_LABELS[action] || action;
+}
+
+function laneSwatch(laneId, fallbackIndex = 0) {
+  return `<span class="lane-swatch" style="background:${getLaneChartColor(laneId, fallbackIndex)}"></span>`;
+}
+
+function renderLaneChipLabel(lane, fallbackIndex = 0) {
+  const approach = laneApproachName(lane.name);
+  const extra = approach && approach !== lane.name ? ` · ${escapeHtml(approach)}` : "";
+  return `${laneSwatch(lane.id, fallbackIndex)}#${lane.id} ${escapeHtml(lane.name)}${extra}`;
+}
+
+function renderLaneNameCell(laneId, name, role) {
+  if (!name && laneId == null) return "—";
+  const swatch = laneId != null ? laneSwatch(laneId) : "";
+  const label = escapeHtml(name || `#${laneId}`);
+  const badge = role ? ` ${laneRoleBadge(role)}` : "";
+  return `${swatch}${label}${badge}`;
+}
+
+function laneMetaForName(name) {
+  return dashboardLanes.find((lane) => lane.name === name) || null;
+}
+
+function positionTypeLabel(position) {
+  if ((position.asset_class || "equity") !== "option") return "Equity";
+  const right = String(position.option_right || "").toUpperCase();
+  if (right === "C" || right === "CALL") return "Call";
+  if (right === "P" || right === "PUT") return "Put";
+  return "Option";
+}
+
+function sumPositionValue(positions, predicate) {
+  return (positions || []).reduce((total, position) => {
+    if (!predicate(position)) return total;
+    return total + Number(position.market_value || 0);
+  }, 0);
 }
 
 function formatPeriodRange(startedAt, endedAt, isCurrent) {
@@ -481,10 +543,16 @@ function renderLaneCompare(compare) {
   );
   const rows = sorted
     .map(
-      (lane) => `
+      (lane) => {
+        const meta = laneMetaForId(lane.lane_id);
+        const startCash = lane.initial_cash_usd ?? meta?.initial_cash_usd;
+        const approach = laneApproachName(lane.name);
+        return `
         <tr class="${lane.lane_role === "live" ? "live-row" : ""}">
-          <td>#${lane.lane_id} ${lane.name} ${laneRoleBadge(lane.lane_role)}</td>
+          <td>${laneSwatch(lane.lane_id)}${escapeHtml(lane.name)} ${laneRoleBadge(lane.lane_role)}</td>
+          <td>${escapeHtml(approach)}</td>
           <td>${laneRoleLabel(lane.lane_role)}</td>
+          <td>${formatMoney(startCash)}</td>
           <td>${lane.strategy_version}</td>
           <td>${lane.plan_version}</td>
           <td>${lane.run_count}</td>
@@ -497,14 +565,18 @@ function renderLaneCompare(compare) {
           <td>${formatMoney(lane.total_cost_usd)}</td>
           <td><button type="button" class="link-btn" data-view-lane="${lane.lane_id}">View</button></td>
         </tr>
-      `
+      `;
+      }
     )
     .join("");
   panel.innerHTML = `
+    <div class="table-wrap">
     <table>
-      <thead><tr><th>Lane</th><th>Type</th><th>Strategy</th><th>Plan</th><th>Runs</th><th>Sim trades</th><th>Avg conf</th><th>Equity Δ</th><th>Lane %</th><th>SPY %</th><th>vs SPY</th><th>Cost</th><th></th></tr></thead>
+      <thead><tr><th>Lane</th><th>Approach</th><th>Type</th><th>Start</th><th>Strategy</th><th>Plan</th><th>Runs</th><th>Sim trades</th><th>Avg conf</th><th>Equity Δ</th><th>Lane %</th><th>SPY %</th><th>vs SPY</th><th>Cost</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
+    </div>
+    <p class="muted">Dollar P&amp;L is not comparable across different starting cash. Use Lane % and vs SPY. Option marks are included in options-research equity.</p>
   `;
   panel.querySelectorAll("[data-view-lane]").forEach((btn) => {
     btn.addEventListener("click", () => selectPortfolioLane(Number(btn.dataset.viewLane)));
@@ -536,9 +608,12 @@ function renderLanesPanel(lanes, liveHistory) {
           : wasLive
             ? `<p class="lane-card-meta">Previously live (${periods.length} stint${periods.length === 1 ? "" : "s"}).</p>`
             : `<p class="lane-card-meta">${laneRoleLabel(lane.lane_role)}</p>`;
+      const color = getLaneChartColor(lane.id);
+      const approach = laneApproachName(lane.name);
       return `
-        <article class="lane-card ${lane.lane_role}">
-          <h3>#${lane.id} ${lane.name} ${laneRoleBadge(lane.lane_role)}</h3>
+        <article class="lane-card ${lane.lane_role}" style="--lane-accent:${color}">
+          <h3>${laneSwatch(lane.id)}#${lane.id} ${escapeHtml(lane.name)} ${laneRoleBadge(lane.lane_role)}</h3>
+          <p class="lane-card-meta">${escapeHtml(approach)}</p>
           ${liveHistoryLine}
           <p class="lane-card-meta">Strategy ${lane.strategy_version} · Plan ${lane.plan_version}</p>
           <p class="lane-card-meta">Status ${lane.status} · Start ${formatMoney(lane.initial_cash_usd)}</p>
@@ -809,8 +884,8 @@ function renderAgentPlansPanel(lanes) {
       (lane) => `
         <details class="agent-plan-panel" id="plan-lane-${lane.id}" data-lane-id="${lane.id}">
           <summary class="agent-plan-summary">
-            <span>#${lane.id} ${escapeHtml(lane.name)} ${laneRoleBadge(lane.lane_role)}</span>
-            <span class="muted plan-meta-line">Plan ${escapeHtml(lane.plan_version)} · Strategy ${escapeHtml(lane.strategy_version)}</span>
+            <span>${laneSwatch(lane.id)}#${lane.id} ${escapeHtml(lane.name)} ${laneRoleBadge(lane.lane_role)}</span>
+            <span class="muted plan-meta-line">${escapeHtml(laneApproachName(lane.name))} · Plan ${escapeHtml(lane.plan_version)} · Strategy ${escapeHtml(lane.strategy_version)}</span>
           </summary>
           <div class="agent-plan-body muted">Expand to load plan details.</div>
         </details>
@@ -834,12 +909,14 @@ const LANE_CHART_PALETTE = [
   "#c2410c", // lane 3 — orange
   "#7c3aed", // lane 4 — violet
   "#0891b2", // lane 5 — cyan
-  "#be185d", // lane 6 — rose
+  "#be185d", // lane 6 — rose (options-research)
+  "#ca8a04", // lane 7 — gold
+  "#0f766e", // lane 8 — teal
 ];
 
 function getLaneChartColor(laneId, fallbackIndex = 0) {
-  if (laneId != null && laneId >= 1 && laneId <= LANE_CHART_PALETTE.length) {
-    return LANE_CHART_PALETTE[laneId - 1];
+  if (laneId != null && laneId >= 1) {
+    return LANE_CHART_PALETTE[(laneId - 1) % LANE_CHART_PALETTE.length];
   }
   return LANE_CHART_PALETTE[fallbackIndex % LANE_CHART_PALETTE.length];
 }
@@ -855,7 +932,7 @@ function renderEquityLaneControls(lanes, selectedIds, onChange) {
       (lane, index) => `
         <label class="lane-chip">
           <input type="checkbox" data-lane-id="${lane.id}" ${selectedIds.has(lane.id) ? "checked" : ""} />
-          <span style="color:${getLaneChartColor(lane.id, index)}">#${lane.id} ${lane.name}</span>
+          <span style="color:${getLaneChartColor(lane.id, index)}">${renderLaneChipLabel(lane, index)}</span>
         </label>
       `
     )
@@ -872,15 +949,24 @@ function parseChartTime(value) {
 
 function renderMultiEquityCurve(laneSeries, vsMarket) {
   const panel = document.getElementById("equity-curve-panel");
-  const marketSeries = (vsMarket?.lanes || []).filter((series) => series.points?.length);
+  const allMarket = vsMarket?.lanes || [];
+  const marketSeries = allMarket.filter((series) => series.points?.length);
+  const pendingSeries = allMarket.filter((series) => !series.points?.length);
   if (marketSeries.length) {
-    renderVsMarketCurve(vsMarket, marketSeries);
+    renderVsMarketCurve(vsMarket, marketSeries, pendingSeries);
     return;
   }
   const seriesList = (laneSeries || []).filter((s) => s.snapshots?.length);
   if (!seriesList.length) {
-    panel.innerHTML =
-      "<p>No portfolio snapshots yet. Snapshots are recorded per lane after each completed run.</p>";
+    const pendingLegend = pendingSeries
+      .map(
+        (series, index) =>
+          `<span class="muted">${laneSwatch(series.lane_id, index)}#${series.lane_id} ${escapeHtml(series.name)} (awaiting first snapshot)</span>`
+      )
+      .join(" · ");
+    panel.innerHTML = pendingLegend
+      ? `<div class="equity-curve-meta">${pendingLegend}</div><p>No portfolio snapshots yet. New lanes appear here after their first completed run. Option marks are included in total equity.</p>`
+      : "<p>No portfolio snapshots yet. Snapshots are recorded per lane after each completed run.</p>";
     return;
   }
 
@@ -921,7 +1007,7 @@ function renderMultiEquityCurve(laneSeries, vsMarket) {
   const legend = seriesList
     .map(
       (series, index) =>
-        `<span style="color:${getLaneChartColor(series.laneId, index)}">#${series.laneId} ${series.name}</span>`
+        `<span style="color:${getLaneChartColor(series.laneId, index)}">${laneSwatch(series.laneId, index)}#${series.laneId} ${escapeHtml(series.name)}</span>`
     )
     .join(" · ");
 
@@ -934,11 +1020,11 @@ function renderMultiEquityCurve(laneSeries, vsMarket) {
       <text x="${padX - 6}" y="${height - padY + 4}" class="chart-label">${formatMoney(minEquity)}</text>
       ${polylines}
     </svg>
-    <p class="muted">Overlay per-lane snapshot equity (select lanes above). Market history is not available yet.</p>
+    <p class="muted">Overlay per-lane snapshot equity (select lanes above). Market history is not available yet. Option marks are included in total equity.</p>
   `;
 }
 
-function renderVsMarketCurve(vsMarket, marketSeries) {
+function renderVsMarketCurve(vsMarket, marketSeries, pendingSeries = []) {
   const panel = document.getElementById("equity-curve-panel");
   const width = 720;
   const height = 240;
@@ -1000,7 +1086,11 @@ function renderVsMarketCurve(vsMarket, marketSeries) {
     `<span style="color:${spyColor}">${vsMarket.benchmark_name || vsMarket.benchmark_symbol || "SPY"}</span>`,
     ...marketSeries.map(
       (series, index) =>
-        `<span style="color:${getLaneChartColor(series.lane_id, index)}">#${series.lane_id} ${series.name} (${formatPct(series.excess_return_pct)} vs SPY)</span>`
+        `<span style="color:${getLaneChartColor(series.lane_id, index)}">${laneSwatch(series.lane_id, index)}#${series.lane_id} ${escapeHtml(series.name)} (${formatPct(series.excess_return_pct)} vs SPY)</span>`
+    ),
+    ...pendingSeries.map(
+      (series, index) =>
+        `<span class="muted">${laneSwatch(series.lane_id, marketSeries.length + index)}#${series.lane_id} ${escapeHtml(series.name)} (awaiting first snapshot)</span>`
     ),
   ].join(" · ");
 
@@ -1015,7 +1105,7 @@ function renderVsMarketCurve(vsMarket, marketSeries) {
       ${spyLine}
       ${laneLines}
     </svg>
-    <p class="muted">Each lane line is paper return since that lane's first snapshot. SPY is buy-and-hold over the same dates.</p>
+    <p class="muted">Each lane line is paper return since that lane's first snapshot, including option marks. SPY is buy-and-hold over the same dates. Lanes without a snapshot yet stay in the legend until their first completed run.</p>
   `;
 }
 
@@ -1234,7 +1324,13 @@ function renderCostDashboard(summary) {
     .map((row) => `<tr><td>${row.key}</td><td>${formatMoney(row.cost_usd)}</td><td>${row.row_count}</td></tr>`)
     .join("");
   const laneRows = (summary.by_lane || [])
-    .map((row) => `<tr><td>${row.key}</td><td>${formatMoney(row.cost_usd)}</td><td>${row.row_count}</td></tr>`)
+    .map((row) => {
+      const lane = laneMetaForName(row.key);
+      const label = lane
+        ? `${laneSwatch(lane.id)}${escapeHtml(row.key)}`
+        : escapeHtml(row.key);
+      return `<tr><td>${label}</td><td>${formatMoney(row.cost_usd)}</td><td>${row.row_count}</td></tr>`;
+    })
     .join("");
 
   const projections = summary.projections;
@@ -1302,7 +1398,12 @@ function renderCostDashboard(summary) {
 }
 
 function renderPortfolio(portfolio, laneMeta) {
-  const rows = portfolio.positions
+  const positions = portfolio.positions || [];
+  const equityMv = sumPositionValue(positions, (p) => (p.asset_class || "equity") !== "option");
+  const optionsMv = sumPositionValue(positions, (p) => p.asset_class === "option");
+  const reservedUsd = Number(portfolio.reserved_usd || 0);
+  const availableCash = portfolio.available_cash_usd ?? portfolio.cash_usd - reservedUsd;
+  const rows = positions
     .map((position) => {
       const isOption = position.asset_class === "option";
       const qtyLabel = isOption
@@ -1313,9 +1414,10 @@ function renderPortfolio(portfolio, laneMeta) {
       const hrefSymbol = position.underlying || position.symbol;
       return `
         <tr class="clickable-row" data-symbol="${hrefSymbol}" title="View ${hrefSymbol}">
-          <td><a href="#symbol/${hrefSymbol}" class="symbol-link">${position.symbol}</a>${
-            isOption ? ` <span class="muted">${position.side || ""}</span>` : ""
+          <td><a href="#symbol/${hrefSymbol}" class="symbol-link">${escapeHtml(position.symbol)}</a>${
+            isOption ? ` <span class="muted">${escapeHtml(position.side || "")}</span>` : ""
           }</td>
+          <td>${positionTypeLabel(position)}</td>
           <td>${qtyLabel}</td>
           <td>${avgLabel}</td>
           <td>${lastLabel}</td>
@@ -1327,18 +1429,25 @@ function renderPortfolio(portfolio, laneMeta) {
     .join("");
 
   const laneLabel = laneMeta
-    ? `<p class="muted">Showing lane #${laneMeta.id} <strong>${laneMeta.name}</strong> ${laneRoleBadge(laneMeta.lane_role)} · ${laneRoleLabel(laneMeta.lane_role)}</p>`
+    ? `<p class="muted">${laneSwatch(laneMeta.id)}Showing lane #${laneMeta.id} <strong>${escapeHtml(laneMeta.name)}</strong> ${laneRoleBadge(laneMeta.lane_role)} · ${escapeHtml(laneApproachName(laneMeta.name))}</p>`
     : "";
   const reserved =
-    portfolio.reserved_usd > 0
-      ? `<p>Reserved (CSP collateral): ${formatMoney(portfolio.reserved_usd)} · Available: ${formatMoney(
-          portfolio.available_cash_usd ?? portfolio.cash_usd - portfolio.reserved_usd
-        )}</p>`
+    reservedUsd > 0
+      ? `<p>Reserved (CSP collateral): ${formatMoney(reservedUsd)} · Available cash: ${formatMoney(availableCash)}</p>`
       : "";
+  const emptyHint =
+    laneMeta?.name === "options-research"
+      ? "No simulated positions yet. Equity shares and option lots appear here after paper fills."
+      : "No simulated positions yet.";
 
   document.getElementById("portfolio-panel").innerHTML = `
     ${laneLabel}
-    <p>Cash: ${formatMoney(portfolio.cash_usd)}</p>
+    <div class="portfolio-book-mix">
+      <span>Cash ${formatMoney(portfolio.cash_usd)}</span>
+      <span>Reserved ${formatMoney(reservedUsd)}</span>
+      <span>Equity MV ${formatMoney(equityMv)}</span>
+      <span>Options MV ${formatMoney(optionsMv)}</span>
+    </div>
     ${reserved}
     <p>Total equity: ${formatMoney(portfolio.total_equity)}</p>
     <p>Unrealized P&amp;L: ${formatMoney(portfolio.total_unrealized_pnl)}</p>
@@ -1347,6 +1456,7 @@ function renderPortfolio(portfolio, laneMeta) {
         <thead>
           <tr>
             <th>Symbol</th>
+            <th>Type</th>
             <th>Qty</th>
             <th>Avg Cost</th>
             <th>Last Price</th>
@@ -1354,7 +1464,7 @@ function renderPortfolio(portfolio, laneMeta) {
             <th>P&amp;L</th>
           </tr>
         </thead>
-        <tbody>${rows || `<tr><td colspan="6">No simulated positions yet.</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="7">${emptyHint}</td></tr>`}</tbody>
       </table>
     </div>
   `;
@@ -1370,7 +1480,9 @@ function renderPortfolio(portfolio, laneMeta) {
 function renderSnapshotSummary(summary, laneMeta) {
   const label = document.getElementById("snapshot-lane-label");
   if (label) {
-    label.textContent = laneMeta ? `#${laneMeta.id} ${laneMeta.name}` : "";
+    label.innerHTML = laneMeta
+      ? `${laneSwatch(laneMeta.id)}#${laneMeta.id} ${escapeHtml(laneMeta.name)}`
+      : "";
   }
   if (!summary) {
     document.getElementById("snapshot-summary-panel").innerHTML =
@@ -1586,7 +1698,7 @@ function renderRuns(runs) {
         <tr class="clickable-row" data-run-id="${run.id}" title="View run #${run.id}">
           <td>${formatActivityTime(run.run_at)}</td>
           <td>${escapeHtml(run.automation_name || "—")}</td>
-          <td>${run.lane_name ? `${laneRoleBadge(run.lane_role || "research")} ${escapeHtml(run.lane_name)}` : "—"}</td>
+          <td>${run.lane_name ? renderLaneNameCell(run.lane_id, run.lane_name, run.lane_role || "research") : "—"}</td>
           <td>${escapeHtml(run.run_type || "—")}</td>
           <td>${run.status}</td>
           <td>${run.budget_exceeded ? '<span class="warn">budget</span>' : ""}</td>
@@ -1650,7 +1762,7 @@ function renderRunDetail(run) {
       (d) => `
         <tr>
           <td><button type="button" class="link-btn" data-symbol="${d.symbol}">${d.symbol}</button></td>
-          <td>${d.action}</td>
+          <td>${escapeHtml(formatActionLabel(d.action))}</td>
           <td>${renderScoreBars(d.scores)}</td>
           <td>${formatMoney(d.amount_usd)}</td>
           <td>${d.order_id || "—"}</td>
@@ -1668,7 +1780,7 @@ function renderRunDetail(run) {
       <p>Strategy: ${run.strategy_version || "—"} · Plan: ${run.plan_version || "—"} · Mode: ${run.mode || "—"}</p>
       ${
         run.lane_name
-          ? `<p>Lane: #${run.lane_id} ${run.lane_name} ${laneRoleBadge(run.lane_role || "research")}</p>`
+          ? `<p>Lane: ${renderLaneNameCell(run.lane_id, run.lane_name, run.lane_role || "research")}</p>`
           : run.lane_id
             ? `<p>Lane: #${run.lane_id}</p>`
             : ""
@@ -1718,7 +1830,7 @@ function renderSymbolDetail(memory) {
       (d) => `
         <tr>
           <td>${d.created_at}</td>
-          <td>${d.action}</td>
+          <td>${escapeHtml(formatActionLabel(d.action))}</td>
           <td>${renderExplainability(d)}</td>
         </tr>
       `
@@ -1746,7 +1858,7 @@ function renderSymbolDetail(memory) {
     <div class="symbol-grid">
       <section>
         <h3>Summary</h3>
-        <p>Last action: ${summary?.last_action || "—"}</p>
+        <p>Last action: ${escapeHtml(formatActionLabel(summary?.last_action) || "—")}</p>
         <p>Trades: ${summary?.trade_count ?? 0} · Realized P&amp;L: ${formatMoney(summary?.realized_pnl_usd)}</p>
         <p>Unrealized P&amp;L: ${formatMoney(summary?.unrealized_pnl_usd ?? position?.unrealized_pnl)}</p>
         ${cooldown ? `<p class="warn">Cooldown until ${cooldown.blocked_until}: ${cooldown.reason}</p>` : ""}
@@ -1755,7 +1867,11 @@ function renderSymbolDetail(memory) {
         <h3>Position</h3>
         ${
           position
-            ? `<p>Qty ${position.quantity.toFixed(4)} @ ${formatMoney(position.avg_cost)} · MV ${formatMoney(position.market_value)}</p>`
+            ? `<p>${positionTypeLabel(position)} · Qty ${
+                position.asset_class === "option"
+                  ? `${position.side === "short" ? "−" : ""}${position.contracts ?? Math.abs(position.quantity)} ct`
+                  : position.quantity.toFixed(4)
+              } @ ${formatMoney(position.avg_cost)}${position.asset_class === "option" ? " prem" : ""} · MV ${formatMoney(position.market_value)}</p>`
             : "<p>No simulated position.</p>"
         }
       </section>
@@ -1833,9 +1949,7 @@ async function downloadExport() {
 }
 
 function renderDecisionLane(decision) {
-  if (!decision.lane_name) return "—";
-  const role = decision.lane_role || "research";
-  return `${laneRoleBadge(role)} ${escapeHtml(decision.lane_name)}`;
+  return renderLaneNameCell(decision.lane_id, decision.lane_name, decision.lane_role || "research");
 }
 
 function renderDecisions(decisions) {
@@ -1853,7 +1967,7 @@ function renderDecisions(decisions) {
           <td>${formatActivityTime(decision.created_at)}</td>
           <td>${renderDecisionLane(decision)}</td>
           <td><button type="button" class="link-btn" data-symbol="${decision.symbol}">${decision.symbol}</button></td>
-          <td>${decision.action}</td>
+          <td>${escapeHtml(formatActionLabel(decision.action))}</td>
           <td>${renderScoreBars(decision.scores)}</td>
           <td>${formatMoney(decision.amount_usd)}</td>
         </tr>
@@ -1920,7 +2034,7 @@ function populatePortfolioLaneSelect(lanes, preferredLaneId) {
   select.innerHTML = lanes
     .map(
       (lane) =>
-        `<option value="${lane.id}" ${lane.id === defaultId ? "selected" : ""}>#${lane.id} ${lane.name} (${lane.lane_role})</option>`
+        `<option value="${lane.id}" ${lane.id === defaultId ? "selected" : ""}>#${lane.id} ${lane.name} · ${laneApproachName(lane.name)} (${lane.lane_role})</option>`
     )
     .join("");
   select.onchange = () => selectPortfolioLane(Number(select.value));

@@ -64,6 +64,7 @@ class MarketCompareServiceTests(unittest.TestCase):
 
         compare = compare_lanes(self.conn)
         primary = next(row for row in compare.lanes if row.lane_id == 1)
+        self.assertGreater(primary.initial_cash_usd, 0)
         self.assertAlmostEqual(primary.equity_change_pct, 10.0, places=3)
         self.assertAlmostEqual(primary.market_return_pct, 4.0, places=3)
         self.assertAlmostEqual(primary.excess_return_pct, 6.0, places=3)

@@ -1210,6 +1210,7 @@ class LaneCompareRowOut(BaseModel):
     plan_version: str
     lane_role: str
     status: str
+    initial_cash_usd: float | None = None
     run_count: int
     completed_runs: int
     decision_count: int

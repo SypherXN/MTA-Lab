@@ -14,7 +14,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Manrope:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=command-center-2" />
+    <link rel="stylesheet" href="styles.css?v=command-center-3" />
   </head>
   <body>
     <div id="login-screen" class="login-screen" hidden>
@@ -167,7 +167,7 @@
                   <a class="text-link" href="#lanes">Open lane workspace →</a>
                 </div>
                 <p class="section-description">
-                  One paper track per plan. Compare here, then open the lane workspace.
+                  One paper track per plan, including the options-research lane. Compare here, then open the lane workspace.
                 </p>
                 <div class="lane-role-legend">
                   <span><span class="lane-badge live">live</span> Real money</span>
@@ -199,7 +199,7 @@
                     <h2>Lane Comparison</h2>
                   </div>
                 </div>
-                <p class="section-description">Paper performance is measured independently for every lane, including return vs SPY over the same dates.</p>
+                <p class="section-description">Paper performance is measured independently for every lane, including return vs SPY over the same dates. Starting cash can differ (options-research starts at $5k); compare Lane % and vs SPY, not dollar P&amp;L. Option marks are included in that lane's equity.</p>
                 <div id="lane-compare-panel">Loading...</div>
               </section>
 
@@ -243,6 +243,7 @@
                 <p class="section-description">
                   Percent return for each lane versus buy-and-hold SPY over the same snapshot dates.
                   Positive vs SPY means the lane beat the market, not just rode it.
+                  Option marks are included in options-research. New lanes stay in the legend until their first snapshot.
                 </p>
                 <div id="equity-lane-controls" class="equity-lane-controls"></div>
                 <div id="equity-curve-panel">Loading...</div>
@@ -435,6 +436,6 @@
     </div>
 
     <script src="config.js?v=command-center-2"></script>
-    <script src="app.js?v=command-center-3"></script>
+    <script src="app.js?v=command-center-4"></script>
   </body>
 </html>

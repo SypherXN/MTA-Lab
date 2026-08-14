@@ -80,6 +80,7 @@ def compare_lanes(
                 plan_version=lane.plan_version,
                 lane_role=lane.lane_role,
                 status=lane.status,
+                initial_cash_usd=float(lane.initial_cash_usd),
                 run_count=int(run_stats["run_count"] or 0),
                 completed_runs=int(run_stats["completed_runs"] or 0),
                 decision_count=int(decision_stats["decision_count"] or 0),

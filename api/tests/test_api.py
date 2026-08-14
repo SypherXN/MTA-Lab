@@ -1847,6 +1847,7 @@ class SimulationLaneTests(unittest.TestCase):
         self.assertGreaterEqual(len(compare["lanes"]), 1)
         primary = next(row for row in compare["lanes"] if row["lane_id"] == 1)
         self.assertIsNotNone(primary["equity_change_usd"])
+        self.assertGreater(primary["initial_cash_usd"], 0)
 
     def test_lane_reset(self):
         reset = client.post(
