@@ -121,7 +121,7 @@
     {
       "id": "research_simulation",
       "priority": "critical",
-      "rule": "In research/paper mode use simulated_* actions (buy, add, sell, trim, stop, take_profit, flatten); never place_equity_order unless trading_allowed."
+      "rule": "In research/paper mode use simulated_* actions (buy, add, sell, trim, stop, take_profit, flatten; option_buy/sell/write/cover when options_enabled); never place_equity_order or place_option_order unless trading_allowed."
     },
     {
       "id": "use_market_input_bundle",
@@ -228,7 +228,7 @@
     {
       "condition": "live_trading_not_allowed",
       "action": "research_only",
-      "description": "Never call place_equity_order unless mode=live, trading_enabled, and kill_switch=false."
+      "description": "Never call place_equity_order or place_option_order unless mode=live, trading_enabled, and kill_switch=false."
     }
   ]
 }

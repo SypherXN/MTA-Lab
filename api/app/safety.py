@@ -3,7 +3,14 @@ from datetime import datetime, timedelta, timezone
 
 import sqlite3
 
-from app.schemas import DecisionIn, RunCreate, SafetySnapshotOut, StrategyOut, StrategyRules, SymbolCooldownOut
+from app.option_service import (
+    SIMULATED_OPTION_ACTIONS,
+    SIMULATED_OPTION_CLOSE_ACTIONS,
+    SIMULATED_OPTION_OPEN_ACTIONS,
+    option_open_notional_usd,
+    validate_option_decision,
+)
+from app.schemas import RunCreate, SafetySnapshotOut, StrategyOut, StrategyRules, SymbolCooldownOut
 
 LIVE_ACTIONS = {"buy", "sell", "place_buy", "place_sell"}
 SIMULATED_BUY_ACTIONS = {"simulated_buy", "paper_buy", "simulated_add"}
@@ -15,10 +22,10 @@ SIMULATED_SELL_ACTIONS = {
     "simulated_take_profit",
     "simulated_flatten",
 }
-SIMULATED_ACTIONS = SIMULATED_BUY_ACTIONS | SIMULATED_SELL_ACTIONS
+SIMULATED_ACTIONS = SIMULATED_BUY_ACTIONS | SIMULATED_SELL_ACTIONS | SIMULATED_OPTION_ACTIONS
 TRADE_ACTIONS = LIVE_ACTIONS | SIMULATED_ACTIONS
-BUY_ACTIONS = {"buy", "place_buy"} | SIMULATED_BUY_ACTIONS
-SELL_ACTIONS = {"sell", "place_sell"} | SIMULATED_SELL_ACTIONS
+BUY_ACTIONS = {"buy", "place_buy"} | SIMULATED_BUY_ACTIONS | SIMULATED_OPTION_OPEN_ACTIONS
+SELL_ACTIONS = {"sell", "place_sell"} | SIMULATED_SELL_ACTIONS | SIMULATED_OPTION_CLOSE_ACTIONS
 PASSIVE_ACTIONS = {"hold", "skip", "no_action", "review_only", "error"}
 
 
@@ -190,7 +197,9 @@ def allowed_actions_for_strategy(
     if strategy.kill_switch:
         return sorted(PASSIVE_ACTIONS)
 
-    actions = set(PASSIVE_ACTIONS) | SIMULATED_ACTIONS
+    actions = set(PASSIVE_ACTIONS) | (SIMULATED_ACTIONS - SIMULATED_OPTION_ACTIONS)
+    if strategy.rules.options_enabled:
+        actions |= SIMULATED_OPTION_ACTIONS
     live_ok = lane_allows_live if lane_allows_live is not None else trading_is_allowed(strategy)
     if live_ok:
         actions |= LIVE_ACTIONS
@@ -235,6 +244,9 @@ def build_safety_snapshot(
         allowed_actions=allowed_actions_for_strategy(
             strategy, lane_allows_live=lane_allows_live
         ),
+        options_enabled=bool(strategy.rules.options_enabled),
+        max_option_contracts=strategy.rules.max_option_contracts,
+        max_csp_notional_usd=strategy.rules.max_csp_notional_usd,
     )
 
 
@@ -271,8 +283,20 @@ def validate_run_decisions(
         if decision.symbol.upper() not in {s.upper() for s in strategy.rules.allowed_symbols}:
             violations.append(f"Symbol {decision.symbol} is not in allowed_symbols")
 
+        if action in SIMULATED_OPTION_ACTIONS:
+            violations.extend(validate_option_decision(decision, strategy))
+
+        buy_notional = 0.0
+        if action in SIMULATED_OPTION_OPEN_ACTIONS:
+            try:
+                buy_notional = option_open_notional_usd(decision)
+            except ValueError:
+                buy_notional = decision.amount_usd or 0
+        elif action in BUY_ACTIONS:
+            buy_notional = decision.amount_usd or 0
+
         if (
-            action in BUY_ACTIONS
+            action in SIMULATED_BUY_ACTIONS
             and decision.amount_usd is not None
             and decision.amount_usd > strategy.rules.max_order_usd
         ):
@@ -288,7 +312,7 @@ def validate_run_decisions(
 
         projected_trades += 1
         if action in BUY_ACTIONS:
-            projected_notional += decision.amount_usd or 0
+            projected_notional += buy_notional
 
     if projected_trades > strategy.rules.max_daily_trades:
         violations.append("Run would exceed max_daily_trades")

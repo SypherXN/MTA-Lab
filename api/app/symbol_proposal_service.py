@@ -9,7 +9,6 @@ from app.lane_service import list_lanes, update_lane
 from app.safety import get_active_strategy
 from app.schemas import (
     LaneUpdate,
-    StrategyRules,
     StrategyUpdate,
     SymbolProposalAutoPromoteRequest,
     SymbolProposalOut,
@@ -256,25 +255,22 @@ def promote_symbol_proposals(
             pool_set.add(symbol)
             added_pool.append(symbol)
 
-    new_rules = StrategyRules(
-        allowed_symbols=allowed,
-        max_order_usd=rules.max_order_usd,
-        max_daily_trades=rules.max_daily_trades,
-        max_daily_notional_usd=rules.max_daily_notional_usd,
-        require_review_before_place=rules.require_review_before_place,
-        watchlist=list(rules.watchlist or rules.allowed_symbols),
-        symbol_cooldown_hours=rules.symbol_cooldown_hours,
-        symbol_discovery_enabled=True if payload.enable_discovery else rules.symbol_discovery_enabled,
-        discovery_max_per_run=(
-            payload.discovery_max_per_run
-            if payload.discovery_max_per_run is not None
-            else (
-                max(rules.discovery_max_per_run, 2)
-                if payload.enable_discovery and rules.discovery_max_per_run < 1
-                else rules.discovery_max_per_run
-            )
-        ),
-        discovery_pool=pool,
+    new_rules = rules.model_copy(
+        update={
+            "allowed_symbols": allowed,
+            "watchlist": list(rules.watchlist or rules.allowed_symbols),
+            "symbol_discovery_enabled": True if payload.enable_discovery else rules.symbol_discovery_enabled,
+            "discovery_max_per_run": (
+                payload.discovery_max_per_run
+                if payload.discovery_max_per_run is not None
+                else (
+                    max(rules.discovery_max_per_run, 2)
+                    if payload.enable_discovery and rules.discovery_max_per_run < 1
+                    else rules.discovery_max_per_run
+                )
+            ),
+            "discovery_pool": pool,
+        }
     )
     validate_discovery_rules(new_rules)
 

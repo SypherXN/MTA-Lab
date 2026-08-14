@@ -1303,27 +1303,43 @@ function renderCostDashboard(summary) {
 
 function renderPortfolio(portfolio, laneMeta) {
   const rows = portfolio.positions
-    .map(
-      (position) => `
-        <tr class="clickable-row" data-symbol="${position.symbol}" title="View ${position.symbol}">
-          <td><a href="#symbol/${position.symbol}" class="symbol-link">${position.symbol}</a></td>
-          <td>${position.quantity.toFixed(4)}</td>
-          <td>${formatMoney(position.avg_cost)}</td>
-          <td>${formatMoney(position.last_price)}</td>
+    .map((position) => {
+      const isOption = position.asset_class === "option";
+      const qtyLabel = isOption
+        ? `${position.side === "short" ? "−" : ""}${position.contracts ?? Math.abs(position.quantity)} ct`
+        : position.quantity.toFixed(4);
+      const avgLabel = isOption ? `${formatMoney(position.avg_cost)} prem` : formatMoney(position.avg_cost);
+      const lastLabel = isOption ? `${formatMoney(position.last_price)} prem` : formatMoney(position.last_price);
+      const hrefSymbol = position.underlying || position.symbol;
+      return `
+        <tr class="clickable-row" data-symbol="${hrefSymbol}" title="View ${hrefSymbol}">
+          <td><a href="#symbol/${hrefSymbol}" class="symbol-link">${position.symbol}</a>${
+            isOption ? ` <span class="muted">${position.side || ""}</span>` : ""
+          }</td>
+          <td>${qtyLabel}</td>
+          <td>${avgLabel}</td>
+          <td>${lastLabel}</td>
           <td>${formatMoney(position.market_value)}</td>
           <td>${formatMoney(position.unrealized_pnl)}</td>
         </tr>
-      `
-    )
+      `;
+    })
     .join("");
 
   const laneLabel = laneMeta
     ? `<p class="muted">Showing lane #${laneMeta.id} <strong>${laneMeta.name}</strong> ${laneRoleBadge(laneMeta.lane_role)} · ${laneRoleLabel(laneMeta.lane_role)}</p>`
     : "";
+  const reserved =
+    portfolio.reserved_usd > 0
+      ? `<p>Reserved (CSP collateral): ${formatMoney(portfolio.reserved_usd)} · Available: ${formatMoney(
+          portfolio.available_cash_usd ?? portfolio.cash_usd - portfolio.reserved_usd
+        )}</p>`
+      : "";
 
   document.getElementById("portfolio-panel").innerHTML = `
     ${laneLabel}
     <p>Cash: ${formatMoney(portfolio.cash_usd)}</p>
+    ${reserved}
     <p>Total equity: ${formatMoney(portfolio.total_equity)}</p>
     <p>Unrealized P&amp;L: ${formatMoney(portfolio.total_unrealized_pnl)}</p>
     <div class="table-wrap">

@@ -19,6 +19,17 @@ class StrategyRules(BaseModel):
         description="Optional extra symbols to consider; must be subset of allowed_symbols. "
         "When empty, uses allowed_symbols minus watchlist.",
     )
+    options_enabled: bool = False
+    max_option_contracts: int = Field(default=2, ge=0, le=20)
+    max_option_debit_usd: float | None = Field(
+        default=None,
+        description="Cap on premium*100*contracts for long options. Defaults to max_order_usd.",
+    )
+    max_csp_notional_usd: float = Field(
+        default=5000,
+        ge=0,
+        description="Max cash-secured put collateral (strike*100*contracts) per order.",
+    )
 
 
 class StrategyOut(BaseModel):
@@ -44,6 +55,15 @@ class SimulatedPositionOut(BaseModel):
     market_value: float | None = None
     cost_basis: float | None = None
     unrealized_pnl: float | None = None
+    asset_class: str = "equity"
+    option_right: str | None = None
+    strike: float | None = None
+    expiry: str | None = None
+    side: str | None = None
+    contracts: float | None = None
+    multiplier: int = 1
+    reserved_usd: float | None = None
+    underlying: str | None = None
 
 
 class SimulatedPortfolioOut(BaseModel):
@@ -51,6 +71,8 @@ class SimulatedPortfolioOut(BaseModel):
     positions: list[SimulatedPositionOut]
     total_equity: float
     total_unrealized_pnl: float | None = None
+    reserved_usd: float = 0
+    available_cash_usd: float | None = None
 
 
 class DecisionScoresIn(BaseModel):
@@ -128,6 +150,11 @@ class DecisionIn(BaseModel):
     percent_of_position: float | None = Field(None, ge=0, le=1)
     stop_price: float | None = None
     target_price: float | None = None
+    option_right: str | None = Field(None, description="call or put")
+    strike: float | None = Field(None, gt=0)
+    expiry: str | None = Field(None, description="Option expiry YYYY-MM-DD")
+    contracts: float | None = Field(None, gt=0)
+    premium: float | None = Field(None, gt=0, description="Option premium per share; fill_price is also accepted")
 
     def resolved_confidence(self) -> float | None:
         if self.scores and self.scores.confidence is not None:
@@ -196,6 +223,9 @@ class SafetySnapshotOut(BaseModel):
     daily_trades_remaining: int
     daily_notional_remaining: float
     allowed_actions: list[str]
+    options_enabled: bool = False
+    max_option_contracts: int = 0
+    max_csp_notional_usd: float | None = None
 
 
 class DecisionDetailOut(DecisionSummaryOut):

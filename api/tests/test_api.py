@@ -60,6 +60,8 @@ class ApiTests(unittest.TestCase):
         self.assertIn("simulated_trim", body["safety"]["allowed_actions"])
         self.assertIn("simulated_flatten", body["safety"]["allowed_actions"])
         self.assertNotIn("buy", body["safety"]["allowed_actions"])
+        self.assertNotIn("simulated_option_buy", body["safety"]["allowed_actions"])
+        self.assertFalse(body["safety"]["options_enabled"])
 
     def test_agent_plan_endpoint(self):
         response = client.get("/api/automation/plan")
@@ -527,6 +529,11 @@ class PlanVersionHistoryTests(unittest.TestCase):
         self.assertEqual(v5["version"], "v5")
         self.assertTrue(any(step["action"] == "ingest_reddit" for step in v5["run_order"]))
         self.assertTrue(any(rule["id"] == "active_position_management" for rule in v5["scoring_rules"]))
+        v6 = client.get("/api/automation/plans/v6").json()
+        self.assertEqual(v6["version"], "v6")
+        self.assertTrue(any(step["action"] == "research_option_markets" for step in v6["run_order"]))
+        self.assertTrue(any(rule["id"] == "paper_options_only" for rule in v6["scoring_rules"]))
+        self.assertTrue(any(rule["id"] == "no_naked_short_calls" for rule in v6["scoring_rules"]))
 
 
 class DecisionScoringTests(unittest.TestCase):
@@ -1251,6 +1258,7 @@ class PriorityGroupBatchTests(unittest.TestCase):
             self.assertIn("001_dashboard_sessions", versions)
             self.assertIn("003_portfolio_snapshots", versions)
             self.assertIn("004_symbol_memory_summaries", versions)
+            self.assertIn("018_simulated_option_positions", versions)
         finally:
             conn.close()
 
@@ -2233,6 +2241,298 @@ class PositionManagementTests(unittest.TestCase):
         context = client.get(f"/api/automation/context?lane_id={self.lane_id}").json()
         self.assertEqual(context["safety"]["daily_notional_used"], 200)
         self.assertEqual(context["safety"]["daily_trades_used"], 2)
+
+
+class OptionPaperTests(unittest.TestCase):
+    EXPIRY = "2027-12-17"
+
+    def setUp(self):
+        strategy_resp = client.patch(
+            "/api/automation/strategy",
+            json={
+                "mode": "research",
+                "trading_enabled": False,
+                "kill_switch": False,
+                "rules": {
+                    "allowed_symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
+                    "max_order_usd": 400,
+                    "max_daily_trades": 50,
+                    "max_daily_notional_usd": 500000,
+                    "require_review_before_place": True,
+                    "watchlist": ["SPY", "QQQ"],
+                    "symbol_cooldown_hours": 0,
+                    "options_enabled": True,
+                    "max_option_contracts": 2,
+                    "max_option_debit_usd": 400,
+                    "max_csp_notional_usd": 5000,
+                }
+            },
+            headers={"X-API-Key": "test-key"},
+        ).json()
+        self.strategy_version = strategy_resp["version"]
+        created = client.post(
+            "/api/admin/lanes",
+            json={
+                "name": f"opt-{self.strategy_version}",
+                "strategy_version": self.strategy_version,
+                "plan_version": "v1",
+                "lane_role": "research",
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        self.lane_id = created.json()["id"]
+
+    def tearDown(self):
+        client.patch(
+            f"/api/admin/lanes/{self.lane_id}",
+            json={"status": "archived"},
+            headers={"X-API-Key": "test-key"},
+        )
+
+    def _run(self, cursor_run_id, decisions, quotes=None, expect_ok=True):
+        payload = {
+            "cursor_run_id": cursor_run_id,
+            "lane_id": self.lane_id,
+            "self_critique": "Options paper test.",
+            "decisions": decisions,
+        }
+        if quotes:
+            payload["quotes"] = quotes
+        response = client.post(
+            "/api/automation/runs",
+            json=payload,
+            headers={"X-API-Key": "test-key"},
+        )
+        if expect_ok:
+            self.assertEqual(response.status_code, 200, response.text)
+        return response
+
+    def _portfolio(self):
+        return client.get(f"/api/automation/context?lane_id={self.lane_id}").json()[
+            "simulated_portfolio"
+        ]
+
+    def test_options_in_allowed_actions(self):
+        context = client.get(f"/api/automation/context?lane_id={self.lane_id}").json()
+        self.assertTrue(context["safety"]["options_enabled"])
+        self.assertIn("simulated_option_buy", context["safety"]["allowed_actions"])
+        self.assertIn("simulated_option_write", context["safety"]["allowed_actions"])
+        self.assertNotIn("buy", context["safety"]["allowed_actions"])
+
+    def test_long_call_debit_and_close(self):
+        start_cash = self._portfolio()["cash_usd"]
+        self._run(
+            f"opt-bto-{self.lane_id}",
+            [
+                {
+                    "symbol": "AAPL",
+                    "action": "simulated_option_buy",
+                    "reason": "Defined-risk call.",
+                    "option_right": "call",
+                    "strike": 180,
+                    "expiry": self.EXPIRY,
+                    "contracts": 1,
+                    "fill_price": 2.5,
+                }
+            ],
+        )
+        portfolio = self._portfolio()
+        self.assertAlmostEqual(portfolio["cash_usd"], start_cash - 250)
+        self.assertEqual(len(portfolio["positions"]), 1)
+        lot = portfolio["positions"][0]
+        self.assertEqual(lot["asset_class"], "option")
+        self.assertEqual(lot["side"], "long")
+        self.assertAlmostEqual(lot["contracts"], 1)
+        self.assertAlmostEqual(lot["market_value"], 250)
+        self.assertIn("AAPL", lot["symbol"])
+
+        self._run(
+            f"opt-stc-{self.lane_id}",
+            [
+                {
+                    "symbol": "AAPL",
+                    "action": "simulated_option_sell",
+                    "reason": "Take premium.",
+                    "option_right": "call",
+                    "strike": 180,
+                    "expiry": self.EXPIRY,
+                    "fill_price": 3.0,
+                }
+            ],
+        )
+        portfolio = self._portfolio()
+        self.assertEqual(portfolio["positions"], [])
+        self.assertAlmostEqual(portfolio["cash_usd"], start_cash + 50)
+
+    def test_csp_reserves_cash_and_cover_releases(self):
+        start = self._portfolio()
+        start_cash = start["cash_usd"]
+        self._run(
+            f"opt-csp-{self.lane_id}",
+            [
+                {
+                    "symbol": "AAPL",
+                    "action": "simulated_option_write",
+                    "reason": "Cash-secured put.",
+                    "option_right": "put",
+                    "strike": 15,
+                    "expiry": self.EXPIRY,
+                    "contracts": 1,
+                    "fill_price": 0.8,
+                }
+            ],
+        )
+        portfolio = self._portfolio()
+        self.assertAlmostEqual(portfolio["cash_usd"], start_cash + 80)
+        self.assertAlmostEqual(portfolio["reserved_usd"], 1500)
+        self.assertAlmostEqual(portfolio["available_cash_usd"], start_cash + 80 - 1500)
+        lot = portfolio["positions"][0]
+        self.assertEqual(lot["side"], "short")
+        self.assertAlmostEqual(lot["market_value"], -80)
+
+        self._run(
+            f"opt-csp-cover-{self.lane_id}",
+            [
+                {
+                    "symbol": "AAPL",
+                    "action": "simulated_option_cover",
+                    "reason": "Buy back put.",
+                    "option_right": "put",
+                    "strike": 15,
+                    "expiry": self.EXPIRY,
+                    "fill_price": 0.4,
+                }
+            ],
+        )
+        portfolio = self._portfolio()
+        self.assertEqual(portfolio["positions"], [])
+        self.assertAlmostEqual(portfolio["reserved_usd"], 0)
+        self.assertAlmostEqual(portfolio["cash_usd"], start_cash + 40)
+
+    def test_naked_short_call_rejected(self):
+        response = self._run(
+            f"opt-naked-{self.lane_id}",
+            [
+                {
+                    "symbol": "AAPL",
+                    "action": "simulated_option_write",
+                    "reason": "Should fail.",
+                    "option_right": "call",
+                    "strike": 200,
+                    "expiry": self.EXPIRY,
+                    "contracts": 1,
+                    "fill_price": 1.0,
+                }
+            ],
+            expect_ok=False,
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("Covered call", response.json()["detail"])
+
+    def test_covered_call_against_paper_shares(self):
+        self._run(
+            f"opt-shares-{self.lane_id}",
+            [
+                {
+                    "symbol": "AAPL",
+                    "action": "simulated_buy",
+                    "reason": "Stock for cover.",
+                    "amount_usd": 200,
+                    "fill_price": 2,
+                }
+            ],
+        )
+        self._run(
+            f"opt-cc-{self.lane_id}",
+            [
+                {
+                    "symbol": "AAPL",
+                    "action": "simulated_option_write",
+                    "reason": "Covered call.",
+                    "option_right": "call",
+                    "strike": 5,
+                    "expiry": self.EXPIRY,
+                    "contracts": 1,
+                    "fill_price": 0.25,
+                }
+            ],
+        )
+        portfolio = self._portfolio()
+        classes = {p["asset_class"] for p in portfolio["positions"]}
+        self.assertEqual(classes, {"equity", "option"})
+
+    def test_option_action_blocked_when_disabled(self):
+        disabled = client.patch(
+            "/api/automation/strategy",
+            json={
+                "rules": {
+                    "allowed_symbols": ["SPY", "QQQ", "AAPL", "MSFT"],
+                    "max_order_usd": 400,
+                    "max_daily_trades": 50,
+                    "max_daily_notional_usd": 500000,
+                    "require_review_before_place": True,
+                    "watchlist": ["SPY", "QQQ"],
+                    "symbol_cooldown_hours": 0,
+                    "options_enabled": False,
+                }
+            },
+            headers={"X-API-Key": "test-key"},
+        ).json()
+        other = client.post(
+            "/api/admin/lanes",
+            json={
+                "name": f"noopt-{disabled['version']}",
+                "strategy_version": disabled["version"],
+                "plan_version": "v1",
+                "lane_role": "research",
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(other.status_code, 200, other.text)
+        other_id = other.json()["id"]
+        response = client.post(
+            "/api/automation/runs",
+            json={
+                "cursor_run_id": f"opt-disabled-{other_id}",
+                "lane_id": other_id,
+                "self_critique": "Should not apply.",
+                "decisions": [
+                    {
+                        "symbol": "AAPL",
+                        "action": "simulated_option_buy",
+                        "reason": "Blocked.",
+                        "option_right": "call",
+                        "strike": 180,
+                        "expiry": self.EXPIRY,
+                        "contracts": 1,
+                        "fill_price": 2.5,
+                    }
+                ],
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("Options are disabled", response.json()["detail"])
+        client.patch(
+            f"/api/admin/lanes/{other_id}",
+            json={"status": "archived"},
+            headers={"X-API-Key": "test-key"},
+        )
+
+    def test_schema_migration_018(self):
+        from app.database import get_connection
+
+        conn = get_connection()
+        try:
+            versions = [
+                row["version"]
+                for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version")
+            ]
+            self.assertIn("018_simulated_option_positions", versions)
+            conn.execute("SELECT 1 FROM simulated_option_positions LIMIT 1")
+        finally:
+            conn.close()
 
 
 class RedditIngestApiTests(unittest.TestCase):

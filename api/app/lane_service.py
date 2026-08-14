@@ -230,6 +230,9 @@ def reset_lane_portfolio(conn: sqlite3.Connection, lane_id: int) -> tuple[int, f
         "SELECT COUNT(*) AS c FROM simulated_positions WHERE lane_id = ?",
         (lane_id,),
     ).fetchone()["c"]
+    from app.option_service import clear_option_positions
+
+    option_cleared = clear_option_positions(conn, lane_id)
     conn.execute("DELETE FROM simulated_positions WHERE lane_id = ?", (lane_id,))
     conn.execute(
         """
@@ -245,7 +248,7 @@ def reset_lane_portfolio(conn: sqlite3.Connection, lane_id: int) -> tuple[int, f
         "DELETE FROM symbol_memory_summaries WHERE lane_id = ?",
         (lane_id,),
     )
-    return int(positions_cleared), lane.initial_cash_usd
+    return int(positions_cleared) + int(option_cleared), lane.initial_cash_usd
 
 
 def ensure_primary_lane(conn: sqlite3.Connection) -> int:
@@ -294,6 +297,9 @@ def apply_portfolio_baseline(
     """Replace a lane's paper book with a cash + positions baseline."""
     get_lane(conn, lane_id)
     now = _iso_now()
+    from app.option_service import clear_option_positions
+
+    clear_option_positions(conn, lane_id)
     conn.execute("DELETE FROM simulated_positions WHERE lane_id = ?", (lane_id,))
     conn.execute(
         """
@@ -359,7 +365,7 @@ def _baseline_from_lane(conn: sqlite3.Connection, lane_id: int) -> tuple[float, 
             avg_cost=p.avg_cost,
         )
         for p in portfolio.positions
-        if p.quantity
+        if p.quantity and (p.asset_class or "equity") == "equity"
     ]
     return float(portfolio.cash_usd), positions
 

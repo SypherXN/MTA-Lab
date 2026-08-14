@@ -21,6 +21,9 @@ DEFAULT_RULES = {
     "symbol_discovery_enabled": False,
     "discovery_max_per_run": 2,
     "discovery_pool": [],
+    "options_enabled": False,
+    "max_option_contracts": 2,
+    "max_csp_notional_usd": 5000,
 }
 
 

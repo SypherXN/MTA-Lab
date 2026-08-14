@@ -48,6 +48,18 @@ from app.schemas import (
     StrategyUpdate,
     UsageMetadata,
 )
+from app.option_service import (
+    SIMULATED_OPTION_ACTIONS,
+    SIMULATED_OPTION_CLOSE_ACTIONS,
+    SIMULATED_OPTION_OPEN_ACTIONS,
+    apply_option_trade,
+    available_cash_usd,
+    option_cash_amount_usd,
+    option_open_notional_usd,
+    option_positions_out,
+    option_rationale_suffix,
+    reserved_cash_usd,
+)
 from app.safety import (
     RUN_STATUS_COMPLETED,
     RUN_STATUS_FAILED,
@@ -120,14 +132,27 @@ def get_simulated_portfolio(
                 market_value=market_value,
                 cost_basis=cost_basis,
                 unrealized_pnl=unrealized_pnl,
+                asset_class="equity",
+                underlying=symbol,
             )
         )
 
+    option_positions = option_positions_out(conn, resolved_lane, quote_map)
+    for pos in option_positions:
+        position_value += pos.market_value or 0.0
+        if pos.unrealized_pnl is not None:
+            has_marked_prices = True
+            total_unrealized_pnl += pos.unrealized_pnl
+        positions.append(pos)
+
+    reserved = reserved_cash_usd(conn, resolved_lane)
     return SimulatedPortfolioOut(
         cash_usd=cash,
         positions=positions,
         total_equity=cash + position_value,
         total_unrealized_pnl=total_unrealized_pnl if has_marked_prices else None,
+        reserved_usd=reserved,
+        available_cash_usd=cash - reserved,
     )
 
 
@@ -238,6 +263,12 @@ def _decision_rationale_with_levels(decision) -> str | None:
         bits.append(f"stop {decision.stop_price:g}")
     if decision.target_price is not None:
         bits.append(f"target {decision.target_price:g}")
+    option_bit = option_rationale_suffix(decision)
+    if option_bit:
+        if rationale and option_bit.lower() in rationale.lower():
+            pass
+        else:
+            rationale = f"{rationale} {option_bit}".strip() if rationale else option_bit
     if not bits:
         return rationale
     suffix = "[" + ", ".join(bits) + "]"
@@ -252,6 +283,13 @@ def _resolve_simulated_amount(
     decision,
 ) -> float | None:
     action = decision.action.lower()
+    if action in SIMULATED_OPTION_OPEN_ACTIONS:
+        try:
+            return option_open_notional_usd(decision)
+        except ValueError:
+            return decision.amount_usd
+    if action in SIMULATED_OPTION_CLOSE_ACTIONS:
+        return option_cash_amount_usd(decision)
     amount = decision.amount_usd
     price = decision.fill_price
     if action not in SIMULATED_SELL_ACTIONS:
@@ -323,7 +361,8 @@ def _apply_simulated_trade(
     ).fetchone()
 
     if action in SIMULATED_BUY_ACTIONS:
-        if cash < amount_usd:
+        available = available_cash_usd(conn, lane_id)
+        if available < amount_usd:
             raise ValueError(f"Insufficient simulated cash for {symbol}")
         new_cash = cash - amount_usd
         if pos is None:
@@ -646,7 +685,9 @@ def create_run(conn: sqlite3.Connection, payload: RunCreate) -> RunCreateRespons
             if status != RUN_STATUS_COMPLETED:
                 continue
 
-            if action in SIMULATED_BUY_ACTIONS or action in SIMULATED_SELL_ACTIONS:
+            if action in SIMULATED_OPTION_ACTIONS:
+                apply_option_trade(conn, resolved_lane, decision)
+            elif action in SIMULATED_BUY_ACTIONS or action in SIMULATED_SELL_ACTIONS:
                 _apply_simulated_trade(
                     conn,
                     resolved_lane,

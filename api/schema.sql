@@ -114,6 +114,24 @@ CREATE TABLE IF NOT EXISTS simulated_positions (
     UNIQUE(lane_id, symbol)
 );
 
+CREATE TABLE IF NOT EXISTS simulated_option_positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lane_id INTEGER NOT NULL REFERENCES simulation_lanes(id),
+    underlying TEXT NOT NULL,
+    option_right TEXT NOT NULL CHECK (option_right IN ('call', 'put')),
+    strike REAL NOT NULL,
+    expiry TEXT NOT NULL,
+    side TEXT NOT NULL CHECK (side IN ('long', 'short')),
+    contracts REAL NOT NULL,
+    avg_premium REAL NOT NULL,
+    last_mark REAL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(lane_id, underlying, option_right, strike, expiry, side)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sim_opt_lane
+    ON simulated_option_positions(lane_id, underlying);
+
 CREATE TABLE IF NOT EXISTS cursor_usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER REFERENCES automation_runs(id) ON DELETE SET NULL,

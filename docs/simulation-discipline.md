@@ -6,7 +6,8 @@ MTA-Lab defaults to **research mode**: the agent logs decisions and the API trac
 
 - Strategy mode: `research`
 - Allowed trade actions: `simulated_buy`, `simulated_add`, `simulated_sell`, `simulated_trim`, `simulated_stop`, `simulated_take_profit`, `simulated_flatten`, `hold`, `skip`
-- Simulated starting cash: `MTA_INITIAL_SIMULATED_CASH` (default $10,000)
+- Options lane only (plan v6, `options_enabled`): `simulated_option_buy`, `simulated_option_sell`, `simulated_option_write`, `simulated_option_cover`
+- Simulated starting cash: `MTA_INITIAL_SIMULATED_CASH` (default $10,000); options-research setup uses $5,000
 - Portfolio snapshots recorded on each **completed** run
 
 ## Simulated trade rules
@@ -16,8 +17,22 @@ When logging a paper trade (`simulated_buy`, `simulated_add`, `simulated_sell`, 
 1. **Symbol** must be in `allowed_symbols` (strategy rules).
 2. **Amount** — entries/adds must respect `max_order_usd` and daily **buy** notional caps. Exits are not capped by `max_order_usd` (you may flatten a winner that grew past the cap).
 3. **Cooldown** — do not buy/add a symbol still in cooldown from a prior buy.
-4. **Fill price** — include `fill_price` from quotes or review when available. If omitted on a buy, the API uses the cached quote price. Sells require `fill_price`.
+4. **Fill price** — include `fill_price` from quotes or review when available. If omitted on a buy, the API uses the cached quote price. Sells require `fill_price`. For options, `fill_price` is **premium per share**.
 5. **Shares** — computed as `amount_usd / fill_price`; cash and positions update atomically on run commit. Omit `amount_usd` on a sell to flatten the whole lot, or set `percent_of_position` (0–1) to trim.
+
+## Paper options (options-research lane)
+
+When `strategy.rules.options_enabled` is true:
+
+| Action | Cash effect |
+|--------|-------------|
+| `simulated_option_buy` | Debit `premium × 100 × contracts` |
+| `simulated_option_sell` | Credit the same on close |
+| `simulated_option_write` (put) | Credit premium; reserve `strike × 100 × contracts` (CSP) |
+| `simulated_option_write` (call) | Credit premium; requires 100 paper shares per contract |
+| `simulated_option_cover` | Debit premium to buy back a short |
+
+Marks use `quotes[]` keys like `OPT:NVDA:2026-08-21:180:C`. Naked short calls are rejected. Live `place_option_order` is never applied by this API.
 
 ## Fill assumptions
 

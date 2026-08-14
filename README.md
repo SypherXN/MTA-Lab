@@ -149,6 +149,7 @@ Full table: [`api/README.md`](api/README.md). Interactive docs: `http://127.0.0.
 | [docs/agent-plans.md](docs/agent-plans.md) | Plan JSON, GitHub edit workflow, sync |
 | [docs/automation/research-prompt.md](docs/automation/research-prompt.md) | Cursor Automation standing instructions |
 | [docs/automation/cursor-automation-setup.md](docs/automation/cursor-automation-setup.md) | Automation creation checklist |
+| [docs/automation/options-research-setup.md](docs/automation/options-research-setup.md) | Paper options + mixed-research lane |
 | [docs/automation/multi-lane-simulation.md](docs/automation/multi-lane-simulation.md) | Lanes, live track, sequential mode |
 | [docs/automation/multi-cadence.md](docs/automation/multi-cadence.md) | Multiple schedules / run types |
 | [docs/safety-gates.md](docs/safety-gates.md) | Live trading gates |

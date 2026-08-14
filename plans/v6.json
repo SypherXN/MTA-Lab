@@ -1,0 +1,229 @@
+{
+  "version": "v6",
+  "name": "Options Research Plan",
+  "change_source": "github",
+  "extends": "_base",
+  "run_order": [
+    {
+      "step": 1,
+      "action": "fetch_plan",
+      "description": "Load the options research plan from the API.",
+      "endpoint": "GET /api/automation/plan",
+      "required": true
+    },
+    {
+      "step": 2,
+      "action": "fetch_context",
+      "description": "Load strategy, safety (options_enabled, max_option_contracts, max_csp_notional_usd), lane turn, and intervention status.",
+      "endpoint": "GET /api/automation/context",
+      "required": true
+    },
+    {
+      "step": 3,
+      "action": "check_budget",
+      "description": "Verify daily/monthly and per-run-type budget before proceeding.",
+      "required": true
+    },
+    {
+      "step": 4,
+      "action": "check_intervention",
+      "description": "Verify no critical intervention triggers before proceeding.",
+      "endpoint": "GET /api/automation/intervention/check",
+      "required": true
+    },
+    {
+      "step": 5,
+      "action": "fetch_market_state",
+      "description": "Call get_accounts first and pass account_number on later MCP calls. Read paper book from context.simulated_portfolio (not live RH lots). Quote SPY/QQQ/VIXY plus open underlyings.",
+      "source": "robinhood_mcp",
+      "required": true
+    },
+    {
+      "step": 6,
+      "action": "sync_orders",
+      "description": "Import Robinhood equity orders for reconciliation. Do not place live equity or option orders.",
+      "endpoint": "POST /api/admin/robinhood-orders/import",
+      "required": true
+    },
+    {
+      "step": 7,
+      "action": "fetch_market_inputs",
+      "description": "Load quotes, indices, volatility proxy, movers, and freshness checklist.",
+      "endpoint": "GET /api/automation/market-inputs",
+      "required": true
+    },
+    {
+      "step": 8,
+      "action": "ingest_reddit",
+      "description": "Fetch public Reddit finance listings via the API and ingest mention summaries.",
+      "endpoint": "POST /api/admin/reddit/ingest",
+      "required": true
+    },
+    {
+      "step": 9,
+      "action": "fetch_reddit",
+      "description": "Read ranked ticker mentions. Use as one candidate source among several, not the only one.",
+      "endpoint": "GET /api/automation/reddit",
+      "required": true
+    },
+    {
+      "step": 10,
+      "action": "fetch_news",
+      "description": "Read stored news, earnings, and macro for watchlist, open underlyings, and shortlisted names.",
+      "endpoint": "GET /api/automation/news",
+      "required": true
+    },
+    {
+      "step": 11,
+      "action": "fetch_discovery_candidates",
+      "description": "Optional extras from candidate_pool / pending proposals. Stay inside allowed_symbols.",
+      "endpoint": "GET /api/automation/discovery/candidates",
+      "required": false
+    },
+    {
+      "step": 12,
+      "action": "research_option_markets",
+      "description": "For shortlisted underlyings: get_option_chains, get_option_instruments, get_option_quotes, and get_option_historicals when useful. Prefer liquid listed calls/puts. Import option marks as OPT:UNDERLYING:YYYY-MM-DD:STRIKE:C|P.",
+      "source": "robinhood_mcp",
+      "required": true
+    },
+    {
+      "step": 13,
+      "action": "fetch_symbol_memory",
+      "description": "Load memory for open underlyings and names you will trade or skip.",
+      "endpoint": "GET /api/automation/symbols/{symbol}/memory",
+      "required": true
+    },
+    {
+      "step": 14,
+      "action": "analyze",
+      "description": "Manage open paper equity and option lots first. Then mix technicals, news, Reddit, discovery, and option chain structure. Defined-risk debit options are the default risky expression. CSPs only when collateral fits available_cash. Covered calls only against this lane's paper shares. Never naked short calls.",
+      "required": true
+    },
+    {
+      "step": 15,
+      "action": "review_trades",
+      "description": "Call review_equity_order / review_option_order for would-be live trades. Never place_equity_order or place_option_order unless safety.trading_allowed (this lane stays paper).",
+      "required": false
+    },
+    {
+      "step": 16,
+      "action": "self_critique",
+      "description": "Confirm research mix was used, option fields are complete, live option place was not called, paper book is not confused with live RH positions, and position management happened.",
+      "required": true
+    },
+    {
+      "step": 17,
+      "action": "log_run",
+      "description": "POST completed or failed run with decisions (including option_right/strike/expiry/contracts/fill_price), equity and OPT: quotes, usage, and errors.",
+      "endpoint": "POST /api/automation/runs",
+      "required": true
+    }
+  ],
+  "scoring_rules_extra": [
+    {
+      "id": "paper_options_only",
+      "priority": "critical",
+      "rule": "This lane is paper-only. Use simulated_option_buy (long debit), simulated_option_sell (close long), simulated_option_write (CSP or covered call), simulated_option_cover (buy back short). Never call place_option_order or place_equity_order. Never log live buy/sell."
+    },
+    {
+      "id": "defined_risk_default",
+      "priority": "critical",
+      "rule": "Default risky expression is a long call or long put. Max loss equals premium*100*contracts and must fit max_option_debit_usd / max_order_usd. Prefer 1 contract. Do not open contracts that already expired."
+    },
+    {
+      "id": "no_naked_short_calls",
+      "priority": "critical",
+      "rule": "simulated_option_write on a call requires enough paper shares in this lane (100 per contract). Naked short calls are forbidden. Cash-secured puts require available_cash_usd >= strike*100*contracts and collateral <= max_csp_notional_usd."
+    },
+    {
+      "id": "multi_source_research",
+      "priority": "critical",
+      "rule": "New entries need at least two independent sources among: option chain/quote structure, technicals/tape, news/earnings, Reddit mention rollup, discovery/movers. Cite them in action_rationale. One viral post alone is not enough."
+    },
+    {
+      "id": "option_fields_required",
+      "priority": "critical",
+      "rule": "Option decisions use symbol=underlying (must be in allowed_symbols) plus option_right, strike, expiry (YYYY-MM-DD), contracts, and fill_price (premium per share). Import marks as quotes[].symbol OPT:NVDA:2026-08-21:180:C."
+    },
+    {
+      "id": "paper_book_not_live",
+      "priority": "critical",
+      "rule": "Only manage context.simulated_portfolio for this lane. Live Robinhood equity/option positions are research context, not this lane's lots. Do not hold/trim symbols you do not actually hold in simulated_portfolio."
+    },
+    {
+      "id": "account_number_required",
+      "priority": "high",
+      "rule": "Call get_accounts first; pass account_number into get_equity_positions, get_option_positions, get_equity_orders, and related MCP tools."
+    },
+    {
+      "id": "manage_option_lots",
+      "priority": "high",
+      "rule": "Every run reviews open option lots. Close or cover when thesis breaks, premium decay has done the work, or expiry is near. Do not let long options expire unattended. Sitting in cash is allowed."
+    },
+    {
+      "id": "speculative_equity_ok",
+      "priority": "medium",
+      "rule": "High-beta equity simulated_buy is allowed when the same two-source rule holds and a stop is set. Size smaller than core lanes. Prefer options when the view is short-dated or asymmetric."
+    },
+    {
+      "id": "skip_illiquid_options",
+      "priority": "medium",
+      "rule": "Skip wide-spread or one-sided option quotes. Prefer weeklies/monthlies with visible bid/ask. Avoid 0DTE unless defined-risk debit, size 1 contract, and tape+news both confirm."
+    }
+  ],
+  "required_inputs_extra": [
+    {
+      "name": "option_chain_research",
+      "source": "robinhood_mcp get_option_chains / get_option_quotes / get_option_historicals",
+      "description": "Listed option chain, marks, and recent premium history for shortlisted underlyings.",
+      "required": true
+    },
+    {
+      "name": "reddit_research",
+      "source": "GET /api/automation/reddit and POST /api/admin/reddit/ingest",
+      "description": "Public finance-subreddit posts as one of several candidate sources.",
+      "required": true
+    }
+  ],
+  "data_sources_extra": [
+    {
+      "name": "robinhood_options_mcp",
+      "type": "mcp",
+      "url": "https://agent.robinhood.com/mcp/trading",
+      "tools": [
+        "get_accounts",
+        "get_option_chains",
+        "get_option_instruments",
+        "get_option_quotes",
+        "get_option_historicals",
+        "get_option_positions",
+        "get_option_orders",
+        "review_option_order"
+      ],
+      "description": "Read and review listed options. place_option_order is forbidden on this paper lane."
+    },
+    {
+      "name": "reddit_public_json",
+      "type": "http",
+      "description": "API fetches public Reddit listings. No login scraping."
+    }
+  ],
+  "stop_conditions_extra": [
+    {
+      "condition": "live_options_not_allowed",
+      "action": "research_only",
+      "description": "Never call place_option_order. This lane stays on simulated_option_* actions."
+    },
+    {
+      "condition": "insufficient_option_data",
+      "action": "skip_new_option_entries",
+      "description": "If chains/quotes cannot be loaded, manage existing paper lots only; do not open new options."
+    },
+    {
+      "condition": "collateral_does_not_fit",
+      "action": "skip_csp",
+      "description": "If strike*100*contracts exceeds available_cash_usd or max_csp_notional_usd, do not write the put."
+    }
+  ]
+}

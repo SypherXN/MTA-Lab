@@ -13,6 +13,7 @@ plans/
   v3.json          # news-event archetype
   v4.json          # ticker exploration (wider discovery lane)
   v5.json          # reddit research (public listings via API)
+  v6.json          # options research (paper listed calls/puts + mixed sources)
 ```
 
 **Edit flow:**

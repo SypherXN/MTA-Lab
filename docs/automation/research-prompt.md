@@ -159,7 +159,7 @@ Use these action values in the POST body:
 
 **Every run:** review open positions first. Do not buy a name and hold it forever. Sitting in cash is allowed.
 
-Listed options (calls/puts) are not supported on these paper lanes.
+Listed options (calls/puts) are paper-traded only on the **options-research** lane (plan **v6**). Other paper lanes stay equity-only. See [options-prompt.md](./options-prompt.md).
 
 ## POST body shape
 
