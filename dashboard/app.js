@@ -228,6 +228,141 @@ function excessClass(value) {
   return "";
 }
 
+function formatAxisMoney(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number === 0) return "$0";
+  if (number >= 10 && Number.isInteger(number)) return `$${number}`;
+  if (number >= 10) return `$${number.toFixed(1)}`;
+  return `$${number.toFixed(2)}`;
+}
+
+function formatChartDay(day) {
+  const parsed = Date.parse(`${day}T00:00:00Z`);
+  if (Number.isNaN(parsed)) return String(day || "");
+  return new Date(parsed).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function addUtcDays(day, count) {
+  const parsed = Date.parse(`${day}T00:00:00Z`);
+  if (Number.isNaN(parsed)) return day;
+  const next = new Date(parsed);
+  next.setUTCDate(next.getUTCDate() + count);
+  return next.toISOString().slice(0, 10);
+}
+
+function niceCostTicks(maxValue, tickCount = 4) {
+  if (!(maxValue > 0)) return [0, 0.01];
+  const raw = maxValue / tickCount;
+  const magnitude = 10 ** Math.floor(Math.log10(raw));
+  const residual = raw / magnitude;
+  const step =
+    residual <= 1 ? magnitude : residual <= 2 ? 2 * magnitude : residual <= 5 ? 5 * magnitude : 10 * magnitude;
+  const niceMax = Math.ceil(maxValue / step) * step;
+  const ticks = [];
+  for (let value = 0; value <= niceMax + step / 2; value += step) {
+    ticks.push(Number(value.toFixed(8)));
+  }
+  return ticks;
+}
+
+function pickTickIndexes(length, maxTicks = 6) {
+  if (length <= 0) return [];
+  if (length <= maxTicks) return [...Array(length).keys()];
+  const chosen = new Set([0, length - 1]);
+  const inner = maxTicks - 2;
+  for (let i = 1; i <= inner; i += 1) {
+    chosen.add(Math.round((i * (length - 1)) / (inner + 1)));
+  }
+  return [...chosen].sort((a, b) => a - b);
+}
+
+function fillDailyCosts(days) {
+  const sorted = [...(days || [])].filter((row) => row?.day).sort((a, b) => String(a.day).localeCompare(String(b.day)));
+  if (!sorted.length) return [];
+  const start = sorted[0].day;
+  const end = sorted[sorted.length - 1].day;
+  const startMs = Date.parse(`${start}T00:00:00Z`);
+  const endMs = Date.parse(`${end}T00:00:00Z`);
+  const spanDays = Number.isFinite(startMs) && Number.isFinite(endMs) ? Math.round((endMs - startMs) / 86400000) : sorted.length - 1;
+  if (!(spanDays >= 0) || spanDays > 90) return sorted;
+  const byDay = new Map(sorted.map((row) => [row.day, row]));
+  const filled = [];
+  for (let cursor = start; cursor <= end; cursor = addUtcDays(cursor, 1)) {
+    filled.push(byDay.get(cursor) || { day: cursor, cost_usd: 0, row_count: 0 });
+    if (filled.length > 91) break;
+  }
+  return filled;
+}
+
+function renderCostChart(days) {
+  const series = fillDailyCosts(days);
+  if (!series.length) return "<p class='muted'>No daily cost data yet.</p>";
+
+  const width = 720;
+  const height = 260;
+  const padLeft = 58;
+  const padRight = 18;
+  const padTop = 16;
+  const padBottom = 42;
+  const plotWidth = width - padLeft - padRight;
+  const plotHeight = height - padTop - padBottom;
+  const maxCost = Math.max(...series.map((row) => Number(row.cost_usd) || 0), 0);
+  const yTicks = niceCostTicks(maxCost);
+  const yMax = yTicks[yTicks.length - 1] || 0.01;
+  const slot = plotWidth / series.length;
+  const barWidth = Math.max(2, Math.min(22, slot * 0.72));
+  const yFor = (value) => padTop + (1 - (Number(value) || 0) / yMax) * plotHeight;
+  const xFor = (index) => padLeft + (index + 0.5) * slot;
+  const zeroY = yFor(0);
+
+  const grid = yTicks
+    .map((tick) => {
+      const y = yFor(tick).toFixed(1);
+      return `
+        <line x1="${padLeft}" y1="${y}" x2="${width - padRight}" y2="${y}" class="chart-grid" />
+        <text x="${padLeft - 8}" y="${(Number(y) + 3).toFixed(1)}" class="chart-label">${formatAxisMoney(tick)}</text>
+      `;
+    })
+    .join("");
+
+  const bars = series
+    .map((row, index) => {
+      const cost = Number(row.cost_usd) || 0;
+      const x = xFor(index);
+      const y = yFor(cost);
+      const barHeight = Math.max(cost > 0 ? 1.5 : 0, zeroY - y);
+      const title = `${formatChartDay(row.day)}: ${formatMoney(cost)} · ${row.row_count || 0} row${row.row_count === 1 ? "" : "s"}`;
+      return `
+        <rect class="chart-bar" x="${(x - barWidth / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}">
+          <title>${escapeHtml(title)}</title>
+        </rect>
+      `;
+    })
+    .join("");
+
+  const xLabels = pickTickIndexes(series.length)
+    .map((index) => {
+      const x = xFor(index).toFixed(1);
+      return `<text x="${x}" y="${height - 14}" class="chart-label-x">${escapeHtml(formatChartDay(series[index].day))}</text>`;
+    })
+    .join("");
+
+  return `
+    <svg class="equity-curve-chart cost-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Daily Cursor cost with dollar and date axes">
+      ${grid}
+      <line x1="${padLeft}" y1="${zeroY.toFixed(1)}" x2="${width - padRight}" y2="${zeroY.toFixed(1)}" class="chart-axis" />
+      <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${zeroY.toFixed(1)}" class="chart-axis" />
+      ${bars}
+      ${xLabels}
+    </svg>
+    <p class="muted">Daily effective Cursor cost (token estimate when billed as Included). Empty calendar days are $0. Hover a bar for the exact amount.</p>
+  `;
+}
+
 function formatScore(value) {
   if (value == null) return null;
   return Number(value);
@@ -1307,21 +1442,6 @@ function renderCostDashboard(summary) {
     return;
   }
   const days = summary.by_day || [];
-  const width = 640;
-  const height = 200;
-  const padX = 48;
-  const padY = 28;
-  const costs = days.map((d) => d.cost_usd);
-  const maxCost = Math.max(...costs, 0.01);
-  const plotWidth = width - padX * 2;
-  const plotHeight = height - padY * 2;
-  const points = days
-    .map((row, index) => {
-      const x = padX + (index / Math.max(days.length - 1, 1)) * plotWidth;
-      const y = padY + (1 - row.cost_usd / maxCost) * plotHeight;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
 
   const modelRows = (summary.by_model || [])
     .map((row) => `<tr><td>${row.key}</td><td>${formatMoney(row.cost_usd)}</td><td>${row.row_count}</td></tr>`)
@@ -1379,13 +1499,7 @@ function renderCostDashboard(summary) {
       ${renderCostPeriodCard("Last 30 days", summary.last_30_days)}
     </div>
     ${projectionHtml}
-    ${
-      days.length
-        ? `<svg class="equity-curve-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Cursor cost over time">
-            <polyline points="${points}" class="chart-line" />
-          </svg>`
-        : "<p class='muted'>No daily cost data yet.</p>"
-    }
+    ${days.length ? renderCostChart(days) : "<p class='muted'>No daily cost data yet.</p>"}
     <div class="cost-breakdown-grid">
       <div>
         <h3>By lane</h3>

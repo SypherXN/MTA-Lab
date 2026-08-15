@@ -497,6 +497,25 @@ main {
   text-anchor: end;
 }
 
+.chart-label-x {
+  fill: var(--muted);
+  font-size: 10px;
+  text-anchor: middle;
+}
+
+.chart-grid {
+  stroke: var(--border-soft);
+  stroke-width: 1;
+}
+
+.chart-bar {
+  fill: var(--accent-strong);
+}
+
+.cost-chart {
+  margin-top: 8px;
+}
+
 .bad {
   color: var(--bad);
 }
