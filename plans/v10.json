@@ -1,0 +1,26 @@
+{
+  "version": "v10",
+  "name": "1DTE Reddit Options (loose)",
+  "change_source": "github",
+  "extends": "_dte",
+  "scoring_rules_extra": [
+    {
+      "id": "reddit_name_source",
+      "priority": "critical",
+      "rule": "Find underlyings from GET /api/automation/reddit (ingest first). Rank mentions in allowed_symbols. This lane's strategy allows a larger debit and 2 contracts — still prefer 1 contract unless the chain is tight and two sources are strong."
+    },
+    {
+      "id": "two_source_reddit_tape",
+      "priority": "critical",
+      "rule": "New entries need a named Reddit mention plus tape or a fillable 1DTE chain (next session). If the name has no 1DTE listing, skip — do not buy a weekly. Size must still fit max_option_debit_usd."
+    }
+  ],
+  "required_inputs_extra": [
+    {
+      "name": "reddit_research",
+      "source": "GET /api/automation/reddit and POST /api/admin/reddit/ingest",
+      "description": "Public finance-subreddit posts are the primary name source.",
+      "required": true
+    }
+  ]
+}

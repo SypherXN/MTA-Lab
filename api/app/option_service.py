@@ -7,7 +7,7 @@ simulated cash / option lots when a run logs simulated_option_* actions.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import sqlite3
 
@@ -32,8 +32,43 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def session_date_et() -> date:
+    """US equity/options session calendar date (America/New_York)."""
+    try:
+        from zoneinfo import ZoneInfo
+
+        return datetime.now(ZoneInfo("America/New_York")).date()
+    except Exception:
+        return datetime.now(timezone.utc).date()
+
+
 def _today_utc() -> date:
-    return datetime.now(timezone.utc).date()
+    return session_date_et()
+
+
+def next_session_date(day: date) -> date:
+    nxt = day + timedelta(days=1)
+    while nxt.weekday() >= 5:
+        nxt += timedelta(days=1)
+    return nxt
+
+
+def session_dte(expiry: str | date, today: date | None = None) -> int:
+    """Session days from today to expiry (Fri→Mon = 1). Negative if already expired."""
+    exp = date.fromisoformat(expiry) if isinstance(expiry, str) else expiry
+    today = today or session_date_et()
+    if exp < today:
+        return (exp - today).days
+    if exp == today:
+        return 0
+    cursor = today
+    steps = 0
+    while cursor < exp:
+        cursor = next_session_date(cursor)
+        steps += 1
+        if steps > 40:
+            return (exp - today).days
+    return steps if cursor == exp else (exp - today).days
 
 
 def format_strike(strike: float) -> str:
@@ -373,8 +408,26 @@ def validate_option_decision(decision: DecisionIn, strategy: StrategyOut) -> lis
             f"{decision.symbol}: contracts {int(contracts)} exceed max_option_contracts ({max_contracts})"
         )
 
-    if action in SIMULATED_OPTION_OPEN_ACTIONS and date.fromisoformat(expiry) < _today_utc():
+    if action in SIMULATED_OPTION_OPEN_ACTIONS and date.fromisoformat(expiry) < session_date_et():
         violations.append(f"{decision.symbol}: cannot open an option that already expired ({expiry})")
+
+    min_dte = strategy.rules.min_option_dte
+    max_dte = strategy.rules.max_option_dte
+    if action in SIMULATED_OPTION_OPEN_ACTIONS and (min_dte is not None or max_dte is not None):
+        dte = session_dte(expiry)
+        if min_dte is not None and dte < min_dte:
+            violations.append(
+                f"{decision.symbol}: expiry {expiry} is {dte} session DTE; min_option_dte is {min_dte}"
+            )
+        if max_dte is not None and dte > max_dte:
+            violations.append(
+                f"{decision.symbol}: expiry {expiry} is {dte} session DTE; max_option_dte is {max_dte}"
+            )
+
+    if action == SIMULATED_OPTION_WRITE and max_dte is not None and max_dte <= 1:
+        violations.append(
+            f"{decision.symbol}: 0DTE/1DTE lanes are debit-only; simulated_option_write is not allowed"
+        )
 
     premium = premium_from_decision(decision)
     if action in SIMULATED_OPTION_OPEN_ACTIONS and (premium is None or premium <= 0):

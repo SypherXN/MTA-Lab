@@ -287,6 +287,57 @@ def upsert_agent_plan_version(
     return get_agent_plan_by_version(conn, version), True
 
 
+def _plan_section_keys() -> tuple[str, ...]:
+    return (
+        "run_order",
+        "required_inputs",
+        "scoring_rules",
+        "data_sources",
+        "stop_conditions",
+    )
+
+
+def _resolved_plan_sections(path, seen: set[str] | None = None) -> dict:
+    import json
+    from pathlib import Path
+
+    path = Path(path)
+    key = str(path.resolve())
+    seen = seen or set()
+    if key in seen:
+        raise ValueError(f"circular plan extends at {path.name}")
+    seen.add(key)
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if raw.get("plan") is not None:
+        return dict(raw["plan"])
+
+    payload: dict = {}
+    extends = raw.get("extends")
+    if extends:
+        base_name = str(extends).strip()
+        if not base_name.endswith(".json"):
+            base_name = f"{base_name}.json"
+        base_path = path.parent / base_name
+        if not base_path.is_file():
+            raise FileNotFoundError(f"{path.name}: extends base not found: {base_path.name}")
+        payload = _resolved_plan_sections(base_path, seen)
+
+    for section in _plan_section_keys():
+        if section in raw:
+            payload[section] = raw[section]
+    extra_map = {
+        "scoring_rules_extra": "scoring_rules",
+        "stop_conditions_extra": "stop_conditions",
+        "data_sources_extra": "data_sources",
+        "required_inputs_extra": "required_inputs",
+    }
+    for extra_key, section in extra_map.items():
+        if extra_key in raw:
+            payload[section] = list(payload.get(section) or []) + list(raw[extra_key])
+    return payload
+
+
 def _load_plan_file(path) -> tuple[str, str, AgentPlanPayload, bool, str]:
     import json
     from pathlib import Path
@@ -299,53 +350,7 @@ def _load_plan_file(path) -> tuple[str, str, AgentPlanPayload, bool, str]:
     name = str(raw.get("name") or version).strip()
     make_active = bool(raw.get("is_active", False))
     change_source = str(raw.get("change_source") or "github").strip() or "github"
-
-    extends = raw.get("extends")
-    base_data: dict = {}
-    if extends:
-        base_name = str(extends).strip()
-        if not base_name.endswith(".json"):
-            base_name = f"{base_name}.json"
-        base_path = path.parent / base_name
-        if not base_path.is_file():
-            raise FileNotFoundError(f"{path.name}: extends base not found: {base_path.name}")
-        base_data = json.loads(base_path.read_text(encoding="utf-8"))
-
-    section_keys = (
-        "run_order",
-        "required_inputs",
-        "scoring_rules",
-        "data_sources",
-        "stop_conditions",
-    )
-    payload_data: dict = {}
-    if raw.get("plan") is not None:
-        payload_data = dict(raw["plan"])
-    else:
-        for key in section_keys:
-            if key in base_data:
-                payload_data[key] = base_data[key]
-        for key in section_keys:
-            if key in raw:
-                payload_data[key] = raw[key]
-        if "scoring_rules_extra" in raw:
-            payload_data["scoring_rules"] = list(payload_data.get("scoring_rules") or []) + list(
-                raw["scoring_rules_extra"]
-            )
-        if "stop_conditions_extra" in raw:
-            payload_data["stop_conditions"] = list(payload_data.get("stop_conditions") or []) + list(
-                raw["stop_conditions_extra"]
-            )
-        if "data_sources_extra" in raw:
-            payload_data["data_sources"] = list(payload_data.get("data_sources") or []) + list(
-                raw["data_sources_extra"]
-            )
-        if "required_inputs_extra" in raw:
-            payload_data["required_inputs"] = list(payload_data.get("required_inputs") or []) + list(
-                raw["required_inputs_extra"]
-            )
-
-    payload = AgentPlanPayload.model_validate(payload_data)
+    payload = AgentPlanPayload.model_validate(_resolved_plan_sections(path))
     return version, name, payload, make_active, change_source
 
 

@@ -14,6 +14,11 @@ plans/
   v4.json          # ticker exploration (wider discovery lane)
   v5.json          # reddit research (public listings via API)
   v6.json          # options research (paper listed calls/puts + mixed sources)
+  v7.json          # 0DTE index (SPY/QQQ tape)
+  v8.json          # 0DTE reddit names
+  v9.json          # 1DTE news names
+  v10.json         # 1DTE reddit names, looser debit cap
+  _dte.json        # shared DTE options mixin (not synced as a version)
 ```
 
 **Edit flow:**

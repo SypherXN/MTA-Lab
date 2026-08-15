@@ -534,6 +534,12 @@ class PlanVersionHistoryTests(unittest.TestCase):
         self.assertTrue(any(step["action"] == "research_option_markets" for step in v6["run_order"]))
         self.assertTrue(any(rule["id"] == "paper_options_only" for rule in v6["scoring_rules"]))
         self.assertTrue(any(rule["id"] == "no_naked_short_calls" for rule in v6["scoring_rules"]))
+        v7 = client.get("/api/automation/plans/v7").json()
+        self.assertEqual(v7["version"], "v7")
+        self.assertTrue(any(rule["id"] == "dte_window" for rule in v7["scoring_rules"]))
+        self.assertTrue(any(rule["id"] == "index_universe_only" for rule in v7["scoring_rules"]))
+        v10 = client.get("/api/automation/plans/v10").json()
+        self.assertTrue(any(rule["id"] == "reddit_name_source" for rule in v10["scoring_rules"]))
 
 
 class DecisionScoringTests(unittest.TestCase):
@@ -2520,6 +2526,103 @@ class OptionPaperTests(unittest.TestCase):
             json={"status": "archived"},
             headers={"X-API-Key": "test-key"},
         )
+
+    def test_zero_dte_rejects_weekly_and_allows_today(self):
+        from app.option_service import session_date_et
+
+        strategy_resp = client.patch(
+            "/api/automation/strategy",
+            json={
+                "mode": "research",
+                "trading_enabled": False,
+                "kill_switch": False,
+                "rules": {
+                    "allowed_symbols": ["SPY", "QQQ"],
+                    "max_order_usd": 150,
+                    "max_daily_trades": 50,
+                    "max_daily_notional_usd": 500000,
+                    "require_review_before_place": True,
+                    "watchlist": ["SPY", "QQQ"],
+                    "symbol_cooldown_hours": 0,
+                    "options_enabled": True,
+                    "max_option_contracts": 1,
+                    "max_option_debit_usd": 150,
+                    "max_csp_notional_usd": 0,
+                    "min_option_dte": 0,
+                    "max_option_dte": 0,
+                },
+            },
+            headers={"X-API-Key": "test-key"},
+        ).json()
+        created = client.post(
+            "/api/admin/lanes",
+            json={
+                "name": f"odte-{strategy_resp['version']}",
+                "strategy_version": strategy_resp["version"],
+                "plan_version": "v1",
+                "lane_role": "research",
+            },
+            headers={"X-API-Key": "test-key"},
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        lane_id = created.json()["id"]
+        try:
+            context = client.get(f"/api/automation/context?lane_id={lane_id}").json()
+            self.assertEqual(context["safety"]["min_option_dte"], 0)
+            self.assertEqual(context["safety"]["max_option_dte"], 0)
+            blocked = client.post(
+                "/api/automation/runs",
+                json={
+                    "cursor_run_id": f"odte-weekly-{lane_id}",
+                    "lane_id": lane_id,
+                    "self_critique": "Weekly should fail DTE window.",
+                    "decisions": [
+                        {
+                            "symbol": "SPY",
+                            "action": "simulated_option_buy",
+                            "reason": "Wrong expiry.",
+                            "option_right": "call",
+                            "strike": 500,
+                            "expiry": self.EXPIRY,
+                            "contracts": 1,
+                            "fill_price": 1.0,
+                        }
+                    ],
+                },
+                headers={"X-API-Key": "test-key"},
+            )
+            self.assertEqual(blocked.status_code, 400, blocked.text)
+            self.assertIn("max_option_dte", str(blocked.json()["detail"]))
+
+            today = session_date_et().isoformat()
+            ok = client.post(
+                "/api/automation/runs",
+                json={
+                    "cursor_run_id": f"odte-today-{lane_id}",
+                    "lane_id": lane_id,
+                    "self_critique": "0DTE debit.",
+                    "decisions": [
+                        {
+                            "symbol": "SPY",
+                            "action": "simulated_option_buy",
+                            "reason": "Today expiry.",
+                            "option_right": "call",
+                            "strike": 500,
+                            "expiry": today,
+                            "contracts": 1,
+                            "fill_price": 1.0,
+                        }
+                    ],
+                },
+                headers={"X-API-Key": "test-key"},
+            )
+            self.assertEqual(ok.status_code, 200, ok.text)
+        finally:
+            client.patch(
+                f"/api/admin/lanes/{lane_id}",
+                json={"status": "archived"},
+                headers={"X-API-Key": "test-key"},
+            )
 
     def test_schema_migration_018(self):
         from app.database import get_connection

@@ -364,6 +364,10 @@ const LANE_APPROACH = {
   "ticker-explorer": "Ticker discovery",
   "reddit-research": "Reddit / social",
   "options-research": "Options / mixed research",
+  "odte-index": "0DTE index",
+  "odte-reddit": "0DTE Reddit",
+  "1dte-news": "1DTE news",
+  "1dte-reddit-loose": "1DTE Reddit / loose",
 };
 
 const ACTION_LABELS = {
@@ -910,8 +914,10 @@ const LANE_CHART_PALETTE = [
   "#7c3aed", // lane 4 — violet
   "#0891b2", // lane 5 — cyan
   "#be185d", // lane 6 — rose (options-research)
-  "#ca8a04", // lane 7 — gold
-  "#0f766e", // lane 8 — teal
+  "#ca8a04", // lane 7 — gold (odte-index)
+  "#0f766e", // lane 8 — teal (odte-reddit)
+  "#4338ca", // lane 9 — indigo (1dte-news)
+  "#9a3412", // lane 10 — rust (1dte-reddit-loose)
 ];
 
 function getLaneChartColor(laneId, fallbackIndex = 0) {

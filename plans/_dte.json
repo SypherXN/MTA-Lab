@@ -1,0 +1,210 @@
+{
+  "name": "Shared short-dated options plan",
+  "extends": "_base",
+  "run_order": [
+    {
+      "step": 1,
+      "action": "fetch_plan",
+      "description": "Load this lane's DTE options plan from the API.",
+      "endpoint": "GET /api/automation/plan",
+      "required": true
+    },
+    {
+      "step": 2,
+      "action": "fetch_context",
+      "description": "Load strategy/safety (options_enabled, min_option_dte, max_option_dte, max_option_debit_usd), lane turn, and this lane's simulated_portfolio.",
+      "endpoint": "GET /api/automation/context",
+      "required": true
+    },
+    {
+      "step": 3,
+      "action": "check_budget",
+      "description": "Verify daily/monthly and per-run-type budget before proceeding.",
+      "required": true
+    },
+    {
+      "step": 4,
+      "action": "check_intervention",
+      "description": "Verify no critical intervention triggers before proceeding.",
+      "endpoint": "GET /api/automation/intervention/check",
+      "required": true
+    },
+    {
+      "step": 5,
+      "action": "fetch_market_state",
+      "description": "Call get_accounts first. Read paper book from context.simulated_portfolio only. Quote SPY/QQQ/VIXY plus open underlyings and the news/reddit shortlist.",
+      "source": "robinhood_mcp",
+      "required": true
+    },
+    {
+      "step": 6,
+      "action": "sync_orders",
+      "description": "Import Robinhood equity orders for reconciliation. Never place live equity or option orders.",
+      "endpoint": "POST /api/admin/robinhood-orders/import",
+      "required": true
+    },
+    {
+      "step": 7,
+      "action": "fetch_market_inputs",
+      "description": "Load quotes, indices, volatility proxy, movers, and freshness checklist.",
+      "endpoint": "GET /api/automation/market-inputs",
+      "required": true
+    },
+    {
+      "step": 8,
+      "action": "ingest_reddit",
+      "description": "Optional unless this lane's scoring rules require Reddit as the name source.",
+      "endpoint": "POST /api/admin/reddit/ingest",
+      "required": false
+    },
+    {
+      "step": 9,
+      "action": "fetch_reddit",
+      "description": "Read ranked ticker mentions when this lane uses Reddit to find underlyings.",
+      "endpoint": "GET /api/automation/reddit",
+      "required": false
+    },
+    {
+      "step": 10,
+      "action": "fetch_news",
+      "description": "Read stored news, earnings, and macro. Required as the name source on the news lane; confirmation elsewhere.",
+      "endpoint": "GET /api/automation/news",
+      "required": true
+    },
+    {
+      "step": 11,
+      "action": "fetch_discovery_candidates",
+      "description": "GET /api/automation/discovery/candidates?lane_id=THIS_LANE. Stay inside allowed_symbols.",
+      "endpoint": "GET /api/automation/discovery/candidates",
+      "required": false
+    },
+    {
+      "step": 12,
+      "action": "research_option_markets",
+      "description": "For shortlisted underlyings: get_option_chains, instruments, quotes. Use only the expiry that matches safety min_option_dte/max_option_dte (0=today ET, 1=next session, Friday 1DTE=Monday). Import OPT:UNDERLYING:YYYY-MM-DD:STRIKE:C|P marks. If quotes 403, do not open.",
+      "source": "robinhood_mcp",
+      "required": true
+    },
+    {
+      "step": 13,
+      "action": "fetch_symbol_memory",
+      "description": "Load memory for open underlyings and names you will trade or skip.",
+      "endpoint": "GET /api/automation/symbols/{symbol}/memory",
+      "required": true
+    },
+    {
+      "step": 14,
+      "action": "analyze",
+      "description": "Manage open paper option lots first. New risk is long debit calls/puts only (no CSP, no covered call, no new equity). Expiry must match this lane's DTE window. Prefer 1 contract. Sitting in cash is allowed.",
+      "required": true
+    },
+    {
+      "step": 15,
+      "action": "review_trades",
+      "description": "review_option_order is optional. Never place_option_order or place_equity_order.",
+      "required": false
+    },
+    {
+      "step": 16,
+      "action": "self_critique",
+      "description": "Confirm DTE window, name source for this lane, option fields, no live place, paper book ≠ live RH, lots managed.",
+      "required": true
+    },
+    {
+      "step": 17,
+      "action": "log_run",
+      "description": "POST run with option_right/strike/expiry/contracts/fill_price, equity and OPT: quotes, usage, errors.",
+      "endpoint": "POST /api/automation/runs",
+      "required": true
+    }
+  ],
+  "scoring_rules_extra": [
+    {
+      "id": "paper_options_only",
+      "priority": "critical",
+      "rule": "Paper-only. Use simulated_option_buy / simulated_option_sell. Do not use simulated_option_write or simulated_option_cover on these DTE lanes. Never place_option_order, place_equity_order, or live buy/sell."
+    },
+    {
+      "id": "dte_window",
+      "priority": "critical",
+      "rule": "New option opens must satisfy safety.min_option_dte and safety.max_option_dte measured in session days (America/New_York). 0 = expiry today. 1 = next session (Friday → Monday). Do not open weeklies or monthlies on these lanes."
+    },
+    {
+      "id": "defined_risk_debit_only",
+      "priority": "critical",
+      "rule": "Only long calls/puts. Debit = premium*100*contracts must fit max_option_debit_usd / max_order_usd. Prefer 1 contract. No CSPs, no covered calls, no naked shorts."
+    },
+    {
+      "id": "no_new_equity",
+      "priority": "critical",
+      "rule": "Do not simulated_buy / add equity. Flatten existing option lots with simulated_option_sell only. Skip names with no fillable DTE quote."
+    },
+    {
+      "id": "option_fields_required",
+      "priority": "critical",
+      "rule": "Option decisions use symbol=underlying (allowed_symbols) plus option_right, strike, expiry (YYYY-MM-DD), contracts, fill_price (premium per share). Import OPT:SPY:2026-08-15:560:C marks."
+    },
+    {
+      "id": "paper_book_not_live",
+      "priority": "critical",
+      "rule": "Only manage context.simulated_portfolio for this lane. Do not hold/trim other-lane or live RH lots."
+    },
+    {
+      "id": "account_number_required",
+      "priority": "high",
+      "rule": "Call get_accounts first; pass account_number on MCP portfolio/order/option calls."
+    },
+    {
+      "id": "manage_option_lots",
+      "priority": "high",
+      "rule": "Every run reviews open option lots. Close 0DTE same day rather than letting them expire unattended. Sitting in cash is allowed."
+    },
+    {
+      "id": "skip_illiquid_or_wrong_expiry",
+      "priority": "medium",
+      "rule": "Skip wide spreads and missing bid/ask. If the chain has no contract in this lane's DTE window, skip — do not substitute a weekly."
+    }
+  ],
+  "required_inputs_extra": [
+    {
+      "name": "option_chain_research",
+      "source": "robinhood_mcp get_option_chains / get_option_quotes",
+      "description": "Listed chain and marks for the DTE expiry only.",
+      "required": true
+    }
+  ],
+  "data_sources_extra": [
+    {
+      "name": "robinhood_options_mcp",
+      "type": "mcp",
+      "url": "https://agent.robinhood.com/mcp/trading",
+      "tools": [
+        "get_accounts",
+        "get_option_chains",
+        "get_option_instruments",
+        "get_option_quotes",
+        "get_option_historicals",
+        "get_option_positions",
+        "review_option_order"
+      ],
+      "description": "Read and review listed options. place_option_order is forbidden."
+    }
+  ],
+  "stop_conditions_extra": [
+    {
+      "condition": "live_options_not_allowed",
+      "action": "research_only",
+      "description": "Never call place_option_order."
+    },
+    {
+      "condition": "insufficient_option_data",
+      "action": "skip_new_option_entries",
+      "description": "If DTE quotes cannot be loaded, manage existing lots only; do not open new options."
+    },
+    {
+      "condition": "outside_regular_hours",
+      "action": "skip_new_option_entries",
+      "description": "If US cash session is closed or option quotes are unavailable, do not open 0DTE/1DTE."
+    }
+  ]
+}

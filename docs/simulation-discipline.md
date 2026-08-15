@@ -7,7 +7,7 @@ MTA-Lab defaults to **research mode**: the agent logs decisions and the API trac
 - Strategy mode: `research`
 - Allowed trade actions: `simulated_buy`, `simulated_add`, `simulated_sell`, `simulated_trim`, `simulated_stop`, `simulated_take_profit`, `simulated_flatten`, `hold`, `skip`
 - Options lane only (plan v6, `options_enabled`): `simulated_option_buy`, `simulated_option_sell`, `simulated_option_write`, `simulated_option_cover`
-- Simulated starting cash: `MTA_INITIAL_SIMULATED_CASH` (default $10,000); options-research setup uses $5,000
+- Simulated starting cash: `MTA_INITIAL_SIMULATED_CASH` (default $10,000); options-research and DTE lanes use $5,000
 - Portfolio snapshots recorded on each **completed** run
 
 ## Simulated trade rules

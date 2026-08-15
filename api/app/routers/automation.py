@@ -14,6 +14,7 @@ from app.plan_service import (
     list_agent_plan_versions,
     update_active_agent_plan,
 )
+from app.lane_service import get_strategy_for_lane
 from app.safety import get_active_strategy
 from app.preflight_service import get_live_preflight
 from app.lane_execution_service import get_lane_turn
@@ -225,12 +226,13 @@ def automation_context(lane_id: int | None = None) -> AutomationContextOut:
 
 
 @router.get("/discovery/candidates", response_model=SymbolDiscoveryOut, dependencies=[ReadKeyDep])
-def automation_discovery_candidates() -> SymbolDiscoveryOut:
+def automation_discovery_candidates(lane_id: int | None = Query(default=None)) -> SymbolDiscoveryOut:
     """Optional extra symbols the agent may research beyond the core watchlist."""
     conn = get_connection()
     try:
         pending = list_symbol_proposals(conn, status="pending", limit=20)
-        return build_symbol_discovery(get_active_strategy(conn), pending_proposals=pending)
+        strategy = get_strategy_for_lane(conn, lane_id) if lane_id is not None else get_active_strategy(conn)
+        return build_symbol_discovery(strategy, pending_proposals=pending)
     finally:
         conn.close()
 

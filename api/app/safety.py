@@ -247,6 +247,9 @@ def build_safety_snapshot(
         options_enabled=bool(strategy.rules.options_enabled),
         max_option_contracts=strategy.rules.max_option_contracts,
         max_csp_notional_usd=strategy.rules.max_csp_notional_usd,
+        max_option_debit_usd=strategy.rules.max_option_debit_usd,
+        min_option_dte=strategy.rules.min_option_dte,
+        max_option_dte=strategy.rules.max_option_dte,
     )
 
 

@@ -164,6 +164,10 @@ Set `MTA_SEQUENTIAL_LANES=true` on the API. Use **one cron**; you may keep separ
 | `mta-explorer` | explorer lane id | ticker-explorer |
 | `mta-reddit` | reddit lane id | reddit-research |
 | `mta-options` | options lane id | options-research |
+| `mta-odte-index` | DTE lane id | odte-index |
+| `mta-odte-reddit` | DTE lane id | odte-reddit |
+| `mta-1dte-news` | DTE lane id | 1dte-news |
+| `mta-1dte-reddit` | DTE lane id | 1dte-reddit-loose |
 
 All can share the same schedule; the API ensures only one lane executes per cycle.
 

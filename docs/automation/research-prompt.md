@@ -159,7 +159,7 @@ Use these action values in the POST body:
 
 **Every run:** review open positions first. Do not buy a name and hold it forever. Sitting in cash is allowed.
 
-Listed options (calls/puts) are paper-traded only on the **options-research** lane (plan **v6**). Other paper lanes stay equity-only. See [options-prompt.md](./options-prompt.md).
+Listed options (calls/puts) are paper-traded on **options-research** (plan **v6**) and the four DTE experiment lanes (plans **v7–v10**). Other paper lanes stay equity-only. See [options-prompt.md](./options-prompt.md) and [dte-options-prompt.md](./dte-options-prompt.md).
 
 ## POST body shape
 

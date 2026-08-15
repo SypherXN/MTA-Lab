@@ -1,0 +1,18 @@
+{
+  "version": "v9",
+  "name": "1DTE News Options",
+  "change_source": "github",
+  "extends": "_dte",
+  "scoring_rules_extra": [
+    {
+      "id": "news_name_source",
+      "priority": "critical",
+      "rule": "Find underlyings from GET /api/automation/news and context.recent_news (RSS/earnings/macro). Rank catalysts that map to allowed_symbols. Do not use Reddit as the name source. Do not default to a fixed watchlist beyond SPY/QQQ for index context."
+    },
+    {
+      "id": "two_source_news_tape",
+      "priority": "critical",
+      "rule": "New entries need a named headline/earnings item plus tape or a fillable 1DTE chain (next session expiry). If the name has no 1DTE listing, skip."
+    }
+  ]
+}

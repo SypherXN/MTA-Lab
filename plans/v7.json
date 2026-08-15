@@ -1,0 +1,18 @@
+{
+  "version": "v7",
+  "name": "0DTE Index Options",
+  "change_source": "github",
+  "extends": "_dte",
+  "scoring_rules_extra": [
+    {
+      "id": "index_universe_only",
+      "priority": "critical",
+      "rule": "Trade only SPY and QQQ (allowed_symbols). Do not pull names from Reddit, news tickers, or discovery."
+    },
+    {
+      "id": "two_source_tape_chain",
+      "priority": "critical",
+      "rule": "New entries need tape/technicals plus a fillable 0DTE bid/ask. News may confirm but must not add tickers. Cite both sources."
+    }
+  ]
+}

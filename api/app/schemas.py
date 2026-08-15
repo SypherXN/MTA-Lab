@@ -30,6 +30,18 @@ class StrategyRules(BaseModel):
         ge=0,
         description="Max cash-secured put collateral (strike*100*contracts) per order.",
     )
+    min_option_dte: int | None = Field(
+        default=None,
+        ge=0,
+        le=45,
+        description="Minimum session days to expiry for new option opens. None = no floor.",
+    )
+    max_option_dte: int | None = Field(
+        default=None,
+        ge=0,
+        le=45,
+        description="Maximum session days to expiry for new option opens (0=0DTE). None = no cap.",
+    )
 
 
 class StrategyOut(BaseModel):
@@ -226,6 +238,9 @@ class SafetySnapshotOut(BaseModel):
     options_enabled: bool = False
     max_option_contracts: int = 0
     max_csp_notional_usd: float | None = None
+    max_option_debit_usd: float | None = None
+    min_option_dte: int | None = None
+    max_option_dte: int | None = None
 
 
 class DecisionDetailOut(DecisionSummaryOut):

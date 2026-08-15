@@ -150,6 +150,7 @@ Full table: [`api/README.md`](api/README.md). Interactive docs: `http://127.0.0.
 | [docs/automation/research-prompt.md](docs/automation/research-prompt.md) | Cursor Automation standing instructions |
 | [docs/automation/cursor-automation-setup.md](docs/automation/cursor-automation-setup.md) | Automation creation checklist |
 | [docs/automation/options-research-setup.md](docs/automation/options-research-setup.md) | Paper options + mixed-research lane |
+| [docs/automation/dte-options-setup.md](docs/automation/dte-options-setup.md) | Paper 0DTE/1DTE experiment (4 lanes) |
 | [docs/automation/multi-lane-simulation.md](docs/automation/multi-lane-simulation.md) | Lanes, live track, sequential mode |
 | [docs/automation/multi-cadence.md](docs/automation/multi-cadence.md) | Multiple schedules / run types |
 | [docs/safety-gates.md](docs/safety-gates.md) | Live trading gates |
