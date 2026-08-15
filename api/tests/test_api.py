@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -1427,6 +1428,13 @@ class PriorityGroupBatch2Tests(unittest.TestCase):
         self.assertIn("last_7_days", summary)
         self.assertIn("this_month", summary)
         self.assertIn("projections", summary)
+
+        today = datetime.now(timezone.utc).date().isoformat()
+        day_detail = client.get(f"/api/dashboard/usage/day?day={today}")
+        self.assertEqual(day_detail.status_code, 200)
+        self.assertGreaterEqual(day_detail.json()["cost_usd"], 1.25)
+        bad_day = client.get("/api/dashboard/usage/day?day=08-15-2026")
+        self.assertEqual(bad_day.status_code, 400)
 
         updated = client.patch(
             "/api/dashboard/strategy",

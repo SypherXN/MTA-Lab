@@ -58,6 +58,41 @@ class UsageSummaryServiceTests(unittest.TestCase):
         self.assertGreater(summary.projections.projected_monthly_usd, 0)
         self.assertIsInstance(summary.by_lane, list)
 
+    def test_usage_day_detail_groups_lane_and_model(self):
+        day = "2026-08-15"
+        self.conn.execute(
+            """
+            INSERT INTO cursor_usage (
+                run_id, model, cost_usd, estimated_cost_usd, reconciled_at, source
+            ) VALUES (NULL, 'cursor-grok-4.6-high', 0, 0.40, ?, 'test')
+            """,
+            (f"{day}T12:00:00+00:00",),
+        )
+        self.conn.execute(
+            """
+            INSERT INTO cursor_usage (
+                run_id, model, cost_usd, estimated_cost_usd, reconciled_at, source
+            ) VALUES (NULL, 'composer-2.5', 0, 0.10, ?, 'test')
+            """,
+            (f"{day}T13:00:00+00:00",),
+        )
+        self.conn.commit()
+
+        from app.usage_summary_service import get_usage_day_detail
+
+        detail = get_usage_day_detail(self.conn, day)
+        self.assertEqual(detail.day, day)
+        self.assertAlmostEqual(detail.cost_usd, 0.50)
+        self.assertEqual(detail.row_count, 2)
+        models = {row.key: row.cost_usd for row in detail.by_model}
+        self.assertAlmostEqual(models["cursor-grok-4.6-high"], 0.40)
+        self.assertAlmostEqual(models["composer-2.5"], 0.10)
+        self.assertEqual(detail.by_lane[0].key, "unlinked")
+        empty = get_usage_day_detail(self.conn, "2026-01-01")
+        self.assertEqual(empty.row_count, 0)
+        with self.assertRaises(ValueError):
+            get_usage_day_detail(self.conn, "15-08-2026")
+
 
 if __name__ == "__main__":
     unittest.main()

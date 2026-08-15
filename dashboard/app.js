@@ -280,30 +280,101 @@ function pickTickIndexes(length, maxTicks = 6) {
   return [...chosen].sort((a, b) => a - b);
 }
 
-function fillDailyCosts(days) {
-  const sorted = [...(days || [])].filter((row) => row?.day).sort((a, b) => String(a.day).localeCompare(String(b.day)));
-  if (!sorted.length) return [];
-  const start = sorted[0].day;
-  const end = sorted[sorted.length - 1].day;
-  const startMs = Date.parse(`${start}T00:00:00Z`);
-  const endMs = Date.parse(`${end}T00:00:00Z`);
-  const spanDays = Number.isFinite(startMs) && Number.isFinite(endMs) ? Math.round((endMs - startMs) / 86400000) : sorted.length - 1;
-  if (!(spanDays >= 0) || spanDays > 90) return sorted;
-  const byDay = new Map(sorted.map((row) => [row.day, row]));
-  const filled = [];
-  for (let cursor = start; cursor <= end; cursor = addUtcDays(cursor, 1)) {
-    filled.push(byDay.get(cursor) || { day: cursor, cost_usd: 0, row_count: 0 });
-    if (filled.length > 91) break;
-  }
-  return filled;
+const COST_WINDOWS = [
+  { id: "7d", label: "7 days" },
+  { id: "14d", label: "14 days" },
+  { id: "30d", label: "30 days" },
+  { id: "60d", label: "60 days" },
+  { id: "week", label: "This week" },
+  { id: "month", label: "This month" },
+  { id: "all", label: "All" },
+];
+
+const costChartState = {
+  windowId: "30d",
+  customRange: null,
+  selectedDay: null,
+  dayDetail: null,
+  loadingDay: false,
+  allDays: [],
+};
+
+let costChartLayout = null;
+
+function utcTodayStamp() {
+  return new Date().toISOString().slice(0, 10);
 }
 
-function renderCostChart(days) {
-  const series = fillDailyCosts(days);
-  if (!series.length) return "<p class='muted'>No daily cost data yet.</p>";
+function utcWeekStart(dayStamp) {
+  const parsed = Date.parse(`${dayStamp}T00:00:00Z`);
+  if (Number.isNaN(parsed)) return dayStamp;
+  const date = new Date(parsed);
+  const mondayOffset = (date.getUTCDay() + 6) % 7;
+  return addUtcDays(dayStamp, -mondayOffset);
+}
+
+function compareDay(a, b) {
+  return String(a).localeCompare(String(b));
+}
+
+function costWindowBounds(allDays) {
+  const today = utcTodayStamp();
+  if (costChartState.customRange) {
+    const start = costChartState.customRange.start;
+    const end = costChartState.customRange.end;
+    return compareDay(start, end) <= 0 ? { start, end } : { start: end, end: start };
+  }
+  const dataStart = [...(allDays || [])].map((row) => row.day).sort(compareDay)[0];
+  if (costChartState.windowId === "all") {
+    return { start: dataStart || today, end: today };
+  }
+  if (costChartState.windowId === "month") {
+    return { start: `${today.slice(0, 8)}01`, end: today };
+  }
+  if (costChartState.windowId === "week") {
+    return { start: utcWeekStart(today), end: today };
+  }
+  const length = { "7d": 7, "14d": 14, "30d": 30, "60d": 60 }[costChartState.windowId] || 30;
+  return { start: addUtcDays(today, -(length - 1)), end: today };
+}
+
+function seriesForCostWindow(allDays) {
+  const bounds = costWindowBounds(allDays);
+  const byDay = new Map((allDays || []).map((row) => [row.day, row]));
+  const series = [];
+  for (let cursor = bounds.start; cursor <= bounds.end; cursor = addUtcDays(cursor, 1)) {
+    series.push(byDay.get(cursor) || { day: cursor, cost_usd: 0, row_count: 0 });
+    if (series.length > 180) break;
+  }
+  return { ...bounds, series };
+}
+
+function costWindowTotal(series) {
+  return series.reduce((sum, row) => sum + (Number(row.cost_usd) || 0), 0);
+}
+
+function indexFromSvgX(svg, clientX) {
+  if (!costChartLayout || !svg.createSVGPoint) return 0;
+  const point = svg.createSVGPoint();
+  point.x = clientX;
+  point.y = 0;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return 0;
+  const local = point.matrixTransform(ctm.inverse());
+  const { padLeft, plotWidth, series } = costChartLayout;
+  const ratio = (local.x - padLeft) / plotWidth;
+  return Math.max(0, Math.min(series.length - 1, Math.floor(ratio * series.length)));
+}
+
+function renderCostChart(allDays) {
+  const { start, end, series } = seriesForCostWindow(allDays);
+  if (!series.length) {
+    costChartLayout = null;
+    return "<p class='muted'>No daily cost data yet.</p>";
+  }
 
   const width = 720;
-  const height = 260;
+  const height = 268;
   const padLeft = 58;
   const padRight = 18;
   const padTop = 16;
@@ -318,6 +389,8 @@ function renderCostChart(days) {
   const yFor = (value) => padTop + (1 - (Number(value) || 0) / yMax) * plotHeight;
   const xFor = (index) => padLeft + (index + 0.5) * slot;
   const zeroY = yFor(0);
+  const selectedDay = costChartState.selectedDay;
+  costChartLayout = { padLeft, padTop, plotWidth, plotHeight, series, slot, xFor, yFor, zeroY };
 
   const grid = yTicks
     .map((tick) => {
@@ -335,11 +408,10 @@ function renderCostChart(days) {
       const x = xFor(index);
       const y = yFor(cost);
       const barHeight = Math.max(cost > 0 ? 1.5 : 0, zeroY - y);
-      const title = `${formatChartDay(row.day)}: ${formatMoney(cost)} · ${row.row_count || 0} row${row.row_count === 1 ? "" : "s"}`;
+      const selected = row.day === selectedDay;
+      const muted = selectedDay && !selected;
       return `
-        <rect class="chart-bar" x="${(x - barWidth / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}">
-          <title>${escapeHtml(title)}</title>
-        </rect>
+        <rect class="chart-bar${selected ? " is-selected" : ""}${muted ? " is-muted" : ""}" data-day="${row.day}" x="${(x - barWidth / 2).toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}"></rect>
       `;
     })
     .join("");
@@ -351,16 +423,270 @@ function renderCostChart(days) {
     })
     .join("");
 
+  const windowTotal = costWindowTotal(series);
+  const daysWithSpend = series.filter((row) => (Number(row.cost_usd) || 0) > 0).length;
+  const custom = costChartState.customRange;
+  const activeWindow = COST_WINDOWS.find((item) => item.id === costChartState.windowId);
+  const rangeLabel = custom
+    ? `${formatChartDay(start)} – ${formatChartDay(end)}`
+    : `${activeWindow?.label || "Window"} · ${formatChartDay(start)} – ${formatChartDay(end)}`;
+
+  const windowButtons = COST_WINDOWS.map((item) => {
+    const active = !custom && costChartState.windowId === item.id;
+    return `<button type="button" class="cost-window-btn${active ? " is-active" : ""}" data-cost-window="${item.id}">${item.label}</button>`;
+  }).join("");
+
   return `
-    <svg class="equity-curve-chart cost-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Daily Cursor cost with dollar and date axes">
-      ${grid}
-      <line x1="${padLeft}" y1="${zeroY.toFixed(1)}" x2="${width - padRight}" y2="${zeroY.toFixed(1)}" class="chart-axis" />
-      <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${zeroY.toFixed(1)}" class="chart-axis" />
-      ${bars}
-      ${xLabels}
-    </svg>
-    <p class="muted">Daily effective Cursor cost (token estimate when billed as Included). Empty calendar days are $0. Hover a bar for the exact amount.</p>
+    <div class="cost-chart-toolbar">
+      <div class="cost-window-bar" role="toolbar" aria-label="Cost chart window">${windowButtons}</div>
+      ${custom ? `<button type="button" class="link-btn" data-cost-clear-range>Clear range</button>` : ""}
+    </div>
+    <p class="cost-window-meta"><strong>${escapeHtml(rangeLabel)}</strong> · ${formatMoney(windowTotal)} · ${daysWithSpend} day${daysWithSpend === 1 ? "" : "s"} with spend</p>
+    <div class="cost-chart-frame">
+      <svg class="equity-curve-chart cost-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Daily Cursor cost. Click a bar for a breakdown. Drag to select a date range.">
+        ${grid}
+        <line x1="${padLeft}" y1="${zeroY.toFixed(1)}" x2="${width - padRight}" y2="${zeroY.toFixed(1)}" class="chart-axis" />
+        <line x1="${padLeft}" y1="${padTop}" x2="${padLeft}" y2="${zeroY.toFixed(1)}" class="chart-axis" />
+        ${bars}
+        ${xLabels}
+        <rect class="chart-window-overlay" hidden x="0" y="${padTop}" width="0" height="${plotHeight}"></rect>
+        <rect class="chart-plot-hit" x="${padLeft}" y="${padTop}" width="${plotWidth}" height="${plotHeight}"></rect>
+      </svg>
+      <div class="cost-chart-tooltip" hidden></div>
+    </div>
+    <p class="muted">UTC days. Click a bar for lane/model/run breakdown. Drag across bars to set a custom window.</p>
+    <div id="cost-day-detail">${renderCostDayDetail()}</div>
   `;
+}
+
+function renderCostDayDetail() {
+  const day = costChartState.selectedDay;
+  if (!day) {
+    return `<p class="muted cost-day-hint">Select a day to see what ran and which lanes spent.</p>`;
+  }
+  if (costChartState.loadingDay) {
+    return `<article class="cost-day-detail"><p>Loading ${escapeHtml(formatChartDay(day))}…</p></article>`;
+  }
+  const detail = costChartState.dayDetail;
+  if (!detail || detail.day !== day) {
+    return `<article class="cost-day-detail"><p>No breakdown for ${escapeHtml(formatChartDay(day))}.</p></article>`;
+  }
+
+  const laneRows = (detail.by_lane || [])
+    .map((row) => {
+      const lane = laneMetaForName(row.key);
+      const label = lane ? `${laneSwatch(lane.id)}${escapeHtml(row.key)}` : escapeHtml(row.key);
+      return `<tr><td>${label}</td><td>${formatMoney(row.cost_usd)}</td><td>${row.row_count}</td></tr>`;
+    })
+    .join("");
+  const modelRows = (detail.by_model || [])
+    .map((row) => `<tr><td>${escapeHtml(row.key)}</td><td>${formatMoney(row.cost_usd)}</td><td>${row.row_count}</td></tr>`)
+    .join("");
+  const runRows = (detail.runs || [])
+    .map((row) => {
+      const lane = row.lane_id != null ? laneMetaForId(row.lane_id) : laneMetaForName(row.lane_name);
+      const name = row.automation_name || "unlinked";
+      const runCell =
+        row.run_id != null
+          ? `<button type="button" class="link-btn" data-run-id="${row.run_id}">#${row.run_id} ${escapeHtml(name)}</button>`
+          : escapeHtml(name);
+      return `<tr>
+        <td>${runCell}</td>
+        <td>${lane ? `${laneSwatch(lane.id)}${escapeHtml(lane.name)}` : escapeHtml(row.lane_name || "unlinked")}</td>
+        <td>${escapeHtml(row.model || "—")}</td>
+        <td>${formatMoney(row.cost_usd)}</td>
+        <td>${row.row_count}</td>
+      </tr>`;
+    })
+    .join("");
+
+  return `
+    <article class="cost-day-detail">
+      <div class="cost-day-detail-head">
+        <div>
+          <p class="eyebrow">Selected day</p>
+          <h3>${escapeHtml(formatChartDay(detail.day))}</h3>
+        </div>
+        <div class="cost-day-detail-total">
+          <strong>${formatMoney(detail.cost_usd)}</strong>
+          <span>${detail.row_count} usage row${detail.row_count === 1 ? "" : "s"}</span>
+        </div>
+        <button type="button" class="link-btn" data-cost-clear-day>Clear</button>
+      </div>
+      <div class="cost-breakdown-grid">
+        <div>
+          <h3>By lane</h3>
+          <table><thead><tr><th>Lane</th><th>Cost</th><th>Rows</th></tr></thead><tbody>${laneRows || "<tr><td colspan='3'>No usage</td></tr>"}</tbody></table>
+        </div>
+        <div>
+          <h3>By model</h3>
+          <table><thead><tr><th>Model</th><th>Cost</th><th>Rows</th></tr></thead><tbody>${modelRows || "<tr><td colspan='3'>No usage</td></tr>"}</tbody></table>
+        </div>
+      </div>
+      <h3>Runs</h3>
+      <table>
+        <thead><tr><th>Run</th><th>Lane</th><th>Model</th><th>Cost</th><th>Rows</th></tr></thead>
+        <tbody>${runRows || "<tr><td colspan='5'>No linked runs</td></tr>"}</tbody>
+      </table>
+    </article>
+  `;
+}
+
+function paintCostChart() {
+  const shell = document.getElementById("cost-chart-shell");
+  if (!shell) return;
+  shell.innerHTML = renderCostChart(costChartState.allDays);
+  bindCostChartInteractions(shell);
+}
+
+function bindCostChartInteractions(root) {
+  root.querySelectorAll("[data-cost-window]").forEach((button) => {
+    button.addEventListener("click", () => setCostWindow(button.dataset.costWindow));
+  });
+  const clearRange = root.querySelector("[data-cost-clear-range]");
+  if (clearRange) {
+    clearRange.addEventListener("click", () => {
+      costChartState.customRange = null;
+      paintCostChart();
+    });
+  }
+  const clearDay = root.querySelector("[data-cost-clear-day]");
+  if (clearDay) {
+    clearDay.addEventListener("click", () => {
+      costChartState.selectedDay = null;
+      costChartState.dayDetail = null;
+      paintCostChart();
+    });
+  }
+  root.querySelectorAll("[data-run-id]").forEach((button) => {
+    button.addEventListener("click", () => openRunModal(Number(button.dataset.runId)));
+  });
+
+  const svg = root.querySelector(".cost-chart");
+  const hit = root.querySelector(".chart-plot-hit");
+  const overlay = root.querySelector(".chart-window-overlay");
+  const tooltip = root.querySelector(".cost-chart-tooltip");
+  const frame = root.querySelector(".cost-chart-frame");
+  if (!svg || !hit || !costChartLayout) return;
+
+  let drag = null;
+
+  const hideTooltip = () => {
+    if (tooltip) tooltip.hidden = true;
+  };
+
+  const showTooltip = (index, clientX, clientY) => {
+    if (!tooltip || !frame) return;
+    const row = costChartLayout.series[index];
+    if (!row) return;
+    const frameRect = frame.getBoundingClientRect();
+    tooltip.hidden = false;
+    tooltip.textContent = `${formatChartDay(row.day)} · ${formatMoney(row.cost_usd)} · ${row.row_count || 0} row${row.row_count === 1 ? "" : "s"}`;
+    const left = Math.min(frameRect.width - 160, Math.max(8, clientX - frameRect.left + 12));
+    const top = Math.max(8, clientY - frameRect.top - 36);
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  };
+
+  const updateOverlay = (fromIndex, toIndex) => {
+    if (!overlay) return;
+    const lo = Math.min(fromIndex, toIndex);
+    const hi = Math.max(fromIndex, toIndex);
+    const x = costChartLayout.padLeft + lo * costChartLayout.slot;
+    const width = (hi - lo + 1) * costChartLayout.slot;
+    overlay.hidden = false;
+    overlay.setAttribute("x", x.toFixed(1));
+    overlay.setAttribute("width", Math.max(width, 2).toFixed(1));
+  };
+
+  hit.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    const index = indexFromSvgX(svg, event.clientX);
+    drag = { pointerId: event.pointerId, start: index, current: index, moved: false };
+    hit.setPointerCapture(event.pointerId);
+    updateOverlay(index, index);
+  });
+  hit.addEventListener("pointermove", (event) => {
+    const index = indexFromSvgX(svg, event.clientX);
+    showTooltip(index, event.clientX, event.clientY);
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (index !== drag.start) drag.moved = true;
+    drag.current = index;
+    updateOverlay(drag.start, drag.current);
+  });
+  hit.addEventListener("pointerup", (event) => {
+    if (tooltip) tooltip.hidden = event.pointerType === "touch";
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const { start, current, moved } = drag;
+    drag = null;
+    if (overlay) overlay.hidden = true;
+    const series = costChartLayout.series;
+    if (!moved || start === current) {
+      const row = series[current];
+      if (row) selectCostDay(row.day);
+      return;
+    }
+    const lo = Math.min(start, current);
+    const hi = Math.max(start, current);
+    costChartState.customRange = { start: series[lo].day, end: series[hi].day };
+    if (costChartState.selectedDay && (costChartState.selectedDay < series[lo].day || costChartState.selectedDay > series[hi].day)) {
+      costChartState.selectedDay = null;
+      costChartState.dayDetail = null;
+    }
+    paintCostChart();
+  });
+  hit.addEventListener("pointerleave", hideTooltip);
+  hit.addEventListener("pointercancel", () => {
+    drag = null;
+    if (overlay) overlay.hidden = true;
+    hideTooltip();
+  });
+}
+
+function setCostWindow(windowId) {
+  costChartState.windowId = windowId;
+  costChartState.customRange = null;
+  const { start, end } = costWindowBounds(costChartState.allDays);
+  if (costChartState.selectedDay && (costChartState.selectedDay < start || costChartState.selectedDay > end)) {
+    costChartState.selectedDay = null;
+    costChartState.dayDetail = null;
+  }
+  paintCostChart();
+  const panel = document.getElementById("cost-dashboard-panel");
+  panel?.querySelectorAll(".cost-period-card[data-cost-window]").forEach((card) => {
+    card.classList.toggle("is-selected", card.dataset.costWindow === windowId);
+  });
+}
+
+async function selectCostDay(day) {
+  if (costChartState.selectedDay === day && costChartState.dayDetail?.day === day) {
+    paintCostChart();
+    return;
+  }
+  costChartState.selectedDay = day;
+  costChartState.loadingDay = true;
+  paintCostChart();
+  try {
+    const detail = await fetchJson(`/api/dashboard/usage/day?day=${encodeURIComponent(day)}`);
+    if (costChartState.selectedDay !== day) return;
+    costChartState.dayDetail = detail;
+  } catch (error) {
+    if (costChartState.selectedDay !== day) return;
+    costChartState.dayDetail = {
+      day,
+      cost_usd: 0,
+      row_count: 0,
+      by_lane: [],
+      by_model: [],
+      runs: [],
+      error: error.message,
+    };
+  } finally {
+    if (costChartState.selectedDay === day) {
+      costChartState.loadingDay = false;
+      paintCostChart();
+    }
+  }
 }
 
 function formatScore(value) {
@@ -1417,7 +1743,7 @@ function renderSafetyControls(context) {
   });
 }
 
-function renderCostPeriodCard(label, period) {
+function renderCostPeriodCard(label, period, windowId) {
   if (!period) return "";
   const detail = [
     period.row_count != null ? `${period.row_count} rows` : null,
@@ -1427,12 +1753,13 @@ function renderCostPeriodCard(label, period) {
   ]
     .filter(Boolean)
     .join(" · ");
+  const selected = !costChartState.customRange && costChartState.windowId === windowId;
   return `
-    <div class="cost-period-card">
+    <button type="button" class="cost-period-card${selected ? " is-selected" : ""}" data-cost-window="${windowId}">
       <span>${label}</span>
       <strong>${formatMoney(period.cost_usd)}</strong>
       ${detail ? `<span>${detail}</span>` : ""}
-    </div>
+    </button>
   `;
 }
 
@@ -1441,7 +1768,7 @@ function renderCostDashboard(summary) {
     document.getElementById("cost-dashboard-panel").innerHTML = "<p>No usage data yet.</p>";
     return;
   }
-  const days = summary.by_day || [];
+  costChartState.allDays = summary.by_day || [];
 
   const modelRows = (summary.by_model || [])
     .map((row) => `<tr><td>${row.key}</td><td>${formatMoney(row.cost_usd)}</td><td>${row.row_count}</td></tr>`)
@@ -1484,7 +1811,8 @@ function renderCostDashboard(summary) {
       </div>`
     : "";
 
-  document.getElementById("cost-dashboard-panel").innerHTML = `
+  const panel = document.getElementById("cost-dashboard-panel");
+  panel.innerHTML = `
     <div class="equity-curve-meta">
       <span>Effective total: ${formatMoney(summary.total_effective_cost_usd ?? summary.total_cost_usd)}</span>
       <span>Billed: ${formatMoney(summary.total_cost_usd)}</span>
@@ -1493,13 +1821,13 @@ function renderCostDashboard(summary) {
       <span>Cost/decision: ${summary.estimated_cost_per_decision != null ? formatMoney(summary.estimated_cost_per_decision) : summary.cost_per_decision != null ? formatMoney(summary.cost_per_decision) : "—"}</span>
     </div>
     <div class="cost-period-grid">
-      ${renderCostPeriodCard("This week", summary.this_week)}
-      ${renderCostPeriodCard("This month", summary.this_month)}
-      ${renderCostPeriodCard("Last 7 days", summary.last_7_days)}
-      ${renderCostPeriodCard("Last 30 days", summary.last_30_days)}
+      ${renderCostPeriodCard("This week", summary.this_week, "week")}
+      ${renderCostPeriodCard("This month", summary.this_month, "month")}
+      ${renderCostPeriodCard("Last 7 days", summary.last_7_days, "7d")}
+      ${renderCostPeriodCard("Last 30 days", summary.last_30_days, "30d")}
     </div>
     ${projectionHtml}
-    ${days.length ? renderCostChart(days) : "<p class='muted'>No daily cost data yet.</p>"}
+    <div id="cost-chart-shell"></div>
     <div class="cost-breakdown-grid">
       <div>
         <h3>By lane</h3>
@@ -1515,6 +1843,10 @@ function renderCostDashboard(summary) {
       </div>
     </div>
   `;
+  panel.querySelectorAll(".cost-period-card[data-cost-window]").forEach((card) => {
+    card.addEventListener("click", () => setCostWindow(card.dataset.costWindow));
+  });
+  paintCostChart();
 }
 
 function renderPortfolio(portfolio, laneMeta) {

@@ -409,10 +409,30 @@ class UsageDayOut(BaseModel):
     row_count: int
 
 
+class UsageDayRunOut(BaseModel):
+    run_id: int | None = None
+    automation_name: str | None = None
+    lane_id: int | None = None
+    lane_name: str | None = None
+    model: str | None = None
+    cursor_run_id: str | None = None
+    cost_usd: float
+    row_count: int
+
+
 class UsageBreakdownOut(BaseModel):
     key: str
     cost_usd: float
     row_count: int
+
+
+class UsageDayDetailOut(BaseModel):
+    day: str
+    cost_usd: float
+    row_count: int
+    by_lane: list[UsageBreakdownOut] = Field(default_factory=list)
+    by_model: list[UsageBreakdownOut] = Field(default_factory=list)
+    runs: list[UsageDayRunOut] = Field(default_factory=list)
 
 
 class UsagePeriodOut(BaseModel):

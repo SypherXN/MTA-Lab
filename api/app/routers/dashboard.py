@@ -44,12 +44,13 @@ from app.schemas import (
     StrategyOut,
     StrategyUpdate,
     TimelineEventOut,
+    UsageDayDetailOut,
     UsageSummaryOut,
 )
 from app.integration_service import get_reconciliation_summary, get_robinhood_orders
 from app.services import get_simulated_portfolio, update_active_strategy
 from app.timeline_service import get_activity_timeline
-from app.usage_summary_service import get_usage_summary
+from app.usage_summary_service import get_usage_day_detail, get_usage_summary
 
 router = APIRouter(
     prefix="/api/dashboard",
@@ -150,6 +151,17 @@ def dashboard_usage_summary() -> UsageSummaryOut:
     conn = get_connection()
     try:
         return get_usage_summary(conn)
+    finally:
+        conn.close()
+
+
+@router.get("/usage/day", response_model=UsageDayDetailOut)
+def dashboard_usage_day(day: str = Query(..., min_length=10, max_length=10)) -> UsageDayDetailOut:
+    conn = get_connection()
+    try:
+        return get_usage_day_detail(conn, day)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     finally:
         conn.close()
 

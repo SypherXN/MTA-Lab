@@ -512,8 +512,139 @@ main {
   fill: var(--accent-strong);
 }
 
+.chart-bar.is-muted {
+  opacity: 0.28;
+}
+
+.chart-bar.is-selected {
+  fill: var(--accent);
+}
+
+.chart-plot-hit {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+.chart-window-overlay {
+  fill: var(--accent);
+  opacity: 0.16;
+  pointer-events: none;
+}
+
 .cost-chart {
   margin-top: 8px;
+}
+
+.cost-chart-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin-top: 8px;
+}
+
+.cost-window-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cost-window-btn {
+  border: 1px solid var(--border-soft);
+  background: var(--panel-inset);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cost-window-btn.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.cost-window-meta {
+  margin: 8px 0 4px;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.cost-chart-frame {
+  position: relative;
+}
+
+.cost-chart-tooltip {
+  position: absolute;
+  z-index: 2;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #17201c;
+  color: #f7fbf8;
+  font-size: 0.72rem;
+  font-weight: 600;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.cost-day-hint {
+  margin-top: 10px;
+}
+
+.cost-day-detail {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--panel-inset);
+}
+
+.cost-day-detail-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+  margin-bottom: 12px;
+}
+
+.cost-day-detail-head h3 {
+  margin: 2px 0 0;
+}
+
+.cost-day-detail-total {
+  margin-left: auto;
+  text-align: right;
+}
+
+.cost-day-detail-total strong {
+  display: block;
+  font-size: 1.15rem;
+}
+
+.cost-day-detail-total span,
+.cost-day-detail-head .eyebrow {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+button.cost-period-card {
+  display: block;
+  width: 100%;
+  margin: 0;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+button.cost-period-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
 }
 
 .bad {

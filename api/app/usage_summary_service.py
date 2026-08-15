@@ -1,15 +1,21 @@
 import calendar
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from app.dashboard_service import EFFECTIVE_COST_SQL
 from app.schemas import (
     UsageBreakdownOut,
+    UsageDayDetailOut,
     UsageDayOut,
+    UsageDayRunOut,
     UsagePeriodOut,
     UsageProjectionsOut,
     UsageSummaryOut,
 )
+
+DAY_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+EFFECTIVE_COST_SQL_U = "COALESCE(NULLIF(u.cost_usd, 0), u.estimated_cost_usd, 0)"
 
 
 def _iso_now() -> datetime:
@@ -145,7 +151,7 @@ def get_usage_summary(conn: sqlite3.Connection) -> UsageSummaryOut:
             FROM cursor_usage
             GROUP BY date(reconciled_at)
             ORDER BY day DESC
-            LIMIT 60
+            LIMIT 180
             """
         )
     ]
@@ -207,4 +213,89 @@ def get_usage_summary(conn: sqlite3.Connection) -> UsageSummaryOut:
         by_model=by_model,
         by_run_type=by_run_type,
         by_lane=by_lane,
+    )
+
+
+def get_usage_day_detail(conn: sqlite3.Connection, day: str) -> UsageDayDetailOut:
+    if not DAY_RE.fullmatch((day or "").strip()):
+        raise ValueError("day must be YYYY-MM-DD")
+    day = day.strip()
+
+    totals = conn.execute(
+        f"""
+        SELECT COALESCE(SUM({EFFECTIVE_COST_SQL}), 0) AS cost_usd,
+               COUNT(*) AS row_count
+        FROM cursor_usage
+        WHERE date(reconciled_at) = ?
+        """,
+        (day,),
+    ).fetchone()
+
+    def breakdown(group_expr: str, join_sql: str = "") -> list[UsageBreakdownOut]:
+        return [
+            UsageBreakdownOut(
+                key=row["key"] or "unlinked",
+                cost_usd=float(row["cost_usd"] or 0),
+                row_count=int(row["row_count"]),
+            )
+            for row in conn.execute(
+                f"""
+                SELECT {group_expr} AS key,
+                       SUM({EFFECTIVE_COST_SQL_U}) AS cost_usd,
+                       COUNT(*) AS row_count
+                FROM cursor_usage u
+                {join_sql}
+                WHERE date(u.reconciled_at) = ?
+                GROUP BY {group_expr}
+                ORDER BY cost_usd DESC
+                """,
+                (day,),
+            )
+        ]
+
+    runs = [
+        UsageDayRunOut(
+            run_id=row["run_id"],
+            automation_name=row["automation_name"],
+            lane_id=row["lane_id"],
+            lane_name=row["lane_name"],
+            model=row["model"],
+            cursor_run_id=row["cursor_run_id"],
+            cost_usd=float(row["cost_usd"] or 0),
+            row_count=int(row["row_count"]),
+        )
+        for row in conn.execute(
+            f"""
+            SELECT u.run_id AS run_id,
+                   r.automation_name AS automation_name,
+                   l.id AS lane_id,
+                   l.name AS lane_name,
+                   u.model AS model,
+                   MAX(u.cursor_run_id) AS cursor_run_id,
+                   SUM({EFFECTIVE_COST_SQL_U}) AS cost_usd,
+                   COUNT(*) AS row_count
+            FROM cursor_usage u
+            LEFT JOIN automation_runs r ON r.id = u.run_id
+            LEFT JOIN simulation_lanes l ON l.id = r.lane_id
+            WHERE date(u.reconciled_at) = ?
+            GROUP BY u.run_id, r.automation_name, l.id, l.name, u.model
+            ORDER BY cost_usd DESC
+            """,
+            (day,),
+        )
+    ]
+
+    return UsageDayDetailOut(
+        day=day,
+        cost_usd=round(float(totals["cost_usd"] or 0), 6),
+        row_count=int(totals["row_count"] or 0),
+        by_lane=breakdown(
+            "COALESCE(l.name, 'unlinked')",
+            """
+            LEFT JOIN automation_runs r ON r.id = u.run_id
+            LEFT JOIN simulation_lanes l ON l.id = r.lane_id
+            """,
+        ),
+        by_model=breakdown("COALESCE(u.model, 'unknown')"),
+        runs=runs,
     )
