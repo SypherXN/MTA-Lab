@@ -562,9 +562,9 @@ function renderLaneCompare(compare) {
           <td>${lane.run_count}</td>
           <td>${lane.simulated_trades}</td>
           <td>${lane.avg_confidence != null ? Number(lane.avg_confidence).toFixed(2) : "—"}</td>
-          <td>${formatMoney(lane.equity_change_usd)}</td>
-          <td>${formatPct(lane.equity_change_pct)}</td>
-          <td>${formatPct(lane.market_return_pct)}</td>
+          <td class="${excessClass(lane.equity_change_usd)}">${formatMoney(lane.equity_change_usd)}</td>
+          <td class="${excessClass(lane.equity_change_pct)}">${formatPct(lane.equity_change_pct)}</td>
+          <td class="${excessClass(lane.market_return_pct)}">${formatPct(lane.market_return_pct)}</td>
           <td class="${excessClass(lane.excess_return_pct)}">${formatPct(lane.excess_return_pct)}</td>
           <td>${formatMoney(lane.total_cost_usd)}</td>
           <td><button type="button" class="link-btn" data-view-lane="${lane.lane_id}">View</button></td>
